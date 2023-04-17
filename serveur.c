@@ -1,77 +1,109 @@
 #include <stdio.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h> // Pour la fonction close()
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
-int main(int argc, char *argv[]) {
-  
-  printf("Début programme\n");
+#define PORT 8080
+#define MAX_CLIENTS 2
 
-  // Création de la socket
-  int dS = socket(AF_INET, SOCK_STREAM, 0);
-  if (dS == -1) {
-    perror("Erreur création socket");
-    exit(EXIT_FAILURE);
-  }
-  printf("Socket créée\n");
+int main() {
+    int server_fd, new_socket, valread;
+    struct sockaddr_in address;
+    int addrlen = sizeof(address);
+    char buffer[1024] = {0};
+    int client_sockets[MAX_CLIENTS] = {0};
+    int num_clients = 0;
 
-  // Préparation de l'adresse du serveur
-  struct sockaddr_in ad;
-  memset(&ad, 0, sizeof(ad)); // Initialisation à 0 pour éviter des erreurs de données résiduelles
-  ad.sin_family = AF_INET;
-  ad.sin_addr.s_addr = INADDR_ANY; // Le serveur accepte les connexions sur toutes ses interfaces réseau
-  ad.sin_port = htons(atoi(argv[1])); // Le port d'écoute est spécifié en argument
+    // Création du socket serveur
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
 
-  // Association de l'adresse au socket
-  if (bind(dS, (struct sockaddr*)&ad, sizeof(ad)) == -1) {
-    perror("Erreur nommage socket");
-    close(dS);
-    exit(EXIT_FAILURE);
-  }
-  printf("Socket nommée\n");
+    // Configuration de l'adresse du serveur
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
 
-  // Attente de connexions entrantes
-  if (listen(dS, 7) == -1) { // backlog = 7 (nombre de connexions en attente maximales)
-    perror("Erreur mise en écoute");
-    close(dS);
-    exit(EXIT_FAILURE);
-  }
-  printf("Mode écoute\n");
+    // Attachement du socket à l'adresse du serveur
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
 
-  // Acceptation d'une connexion entrante
-  struct sockaddr_in aC ;
-  socklen_t lg = sizeof(struct sockaddr_in) ;
-  int dSC = accept(dS, (struct sockaddr*) &aC, &lg) ;
-  if (dSC == -1) {
-    perror("Erreur acceptation connexion");
-    close(dS);
-    exit(EXIT_FAILURE);
-  }
-  printf("Client connecté\n");
+    // Ecoute du socket pour des connexions entrantes
+    if (listen(server_fd, 2) < 0) {
+        perror("listen failed");
+        exit(EXIT_FAILURE);
+    }
 
-  // Réception d'un message du client
-  char msg[20] ;
-  ssize_t n = recv(dSC, msg, sizeof(msg)-1, 0) ; // -1 pour réserver un octet pour le caractère nul final
-  if (n == -1) {
-    perror("Erreur réception message");
-    close(dSC);
-    close(dS);
-    exit(EXIT_FAILURE);
-  } else if (n == 0) {
-    printf("Le client a fermé la connexion\n");
-    close(dSC);
-    close(dS);
-    exit(EXIT_SUCCESS);
-  }
-  msg[n] = '\0'; // Ajout du caractère nul final pour terminer la chaîne de caractères
-  printf("Message reçu : %s\n", msg) ;
-  
-  // Envoi d'une réponse au client
-  int r = 10 ;
-  if (send(dSC, &r, sizeof(int), 0) == -1) {
-    perror("Erreur envoi réponse");
-    close(dSC);
-    close(dS);
-    exit
+    printf("Waiting for clients...\n");
+
+    // Boucle pour gérer les clients
+    while (1) {
+        // Attente d'une connexion entrante
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+            perror("accept failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Ajout du nouveau client à la liste des clients
+        client_sockets[num_clients++] = new_socket;
+
+        // Envoi d'un message de bienvenue au nouveau client
+        char *welcome_message = "Welcome to the chat server!\n";
+        send(new_socket, welcome_message, strlen(welcome_message), 0);
+
+        printf("New client connected: %s\n", inet_ntoa(address.sin_addr));
+
+        // Si le nombre de clients est atteint, on peut commencer à relayer les messages
+        if (num_clients == MAX_CLIENTS) {
+            // Boucle pour relayer les messages entre les clients
+            while (1) {
+                // Lecture du message du premier client
+                valread = read(client_sockets[0], buffer, 1024);
+                printf("Client 1: %s\n", buffer);
+
+                // Vérification si le message est "fin"
+                if (strcmp(buffer, "fin\n") == 0) {
+                    break;
+                }
+
+                // Envoi du message du premier client au deuxième client
+                send(client_sockets[1], buffer, strlen(buffer), 0);
+
+                // Effacement du buffer
+                memset(buffer, 0, sizeof(buffer));
+
+                // Lecture du message du deuxième client
+                valread = read(client_sockets[1], buffer, 1024);
+                printf("Client 2: %s\n", buffer);
+
+                // Vérification si le message est "fin"
+                if (strcmp(buffer, "fin\n") == 0) {
+                    break;
+                }
+
+                // Envoi du message
+            send(client_sockets[0], buffer, strlen(buffer), 0);
+
+            // Effacement du buffer
+            memset(buffer, 0, sizeof(buffer));
+        }
+
+        // Fermeture des sockets clients
+        close(client_sockets[0]);
+        close(client_sockets[1]);
+        // Réinitialisation de la liste des sockets clients et du nombre de clients
+        num_clients = 0;
+        memset(client_sockets, 0, sizeof(client_sockets));
+        printf("Chat session ended.\n");
+    }
+}
+
+return 0;
+}
