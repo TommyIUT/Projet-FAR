@@ -1,65 +1,140 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
-#define PORT 8080
+#define LENGTH 2048
 
-int main() {
-    int sock = 0, valread;
-    struct sockaddr_in serv_addr;
-    char buffer[1024] = {0};
+// Global variables
+volatile sig_atomic_t flag = 0;
+int sockfd = 0;
+char name[32];
 
-    // Création du socket client
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        printf("\n Socket creation error \n");
-        return -1;
+void str_overwrite_stdout() {
+  printf("%s", "> ");
+  fflush(stdout);
+}
+
+void str_trim_lf (char* arr, int length) {
+  int i;
+  for (i = 0; i < length; i++) { // trim \n
+    if (arr[i] == '\n') {
+      arr[i] = '\0';
+      break;
+    }
+  }
+}
+
+void catch_ctrl_c_and_exit(int sig) {
+    flag = 1;
+}
+
+void send_msg_handler() {
+  char message[LENGTH] = {};
+	char buffer[LENGTH + 32] = {};
+
+  while(1) {
+  	str_overwrite_stdout();
+    fgets(message, LENGTH, stdin);
+    str_trim_lf(message, LENGTH);
+
+    if (strcmp(message, "exit") == 0) {
+			break;
+    } else {
+      sprintf(buffer, "%s: %s\n", name, message);
+      send(sockfd, buffer, strlen(buffer), 0);
     }
 
-    // Configuration de l'adresse du serveur
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(PORT);
+		bzero(message, LENGTH);
+    bzero(buffer, LENGTH + 32);
+  }
+  catch_ctrl_c_and_exit(2);
+}
 
-    // Convertir l'adresse IP du serveur en format binaire
-    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
-        printf("\nInvalid address/ Address not supported \n");
-        return -1;
+void recv_msg_handler() {
+	char message[LENGTH] = {};
+  while (1) {
+		int receive = recv(sockfd, message, LENGTH, 0);
+    if (receive > 0) {
+      printf("%s", message);
+      str_overwrite_stdout();
+    } else if (receive == 0) {
+			break;
+    } else {
+			// -1
+		}
+		memset(message, 0, sizeof(message));
+  }
+}
+
+int main(int argc, char **argv){
+	if(argc != 2){
+		printf("Usage: %s <port>\n", argv[0]);
+		return EXIT_FAILURE;
+	}
+
+	char *ip = "127.0.0.1";
+	int port = atoi(argv[1]);
+
+	signal(SIGINT, catch_ctrl_c_and_exit);
+
+	printf("Please enter your name: ");
+  fgets(name, 32, stdin);
+  str_trim_lf(name, strlen(name));
+
+
+	if (strlen(name) > 32 || strlen(name) < 2){
+		printf("Name must be less than 30 and more than 2 characters.\n");
+		return EXIT_FAILURE;
+	}
+
+	struct sockaddr_in server_addr;
+
+	/* Socket settings */
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = inet_addr(ip);
+  server_addr.sin_port = htons(port);
+
+
+  // Connect to Server
+  int err = connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+  if (err == -1) {
+		printf("ERROR: connect\n");
+		return EXIT_FAILURE;
+	}
+
+	// Send name
+	send(sockfd, name, 32, 0);
+
+	printf("=== WELCOME TO THE CHATROOM ===\n");
+
+	pthread_t send_msg_thread;
+  if(pthread_create(&send_msg_thread, NULL, (void *) send_msg_handler, NULL) != 0){
+		printf("ERROR: pthread\n");
+    return EXIT_FAILURE;
+	}
+
+	pthread_t recv_msg_thread;
+  if(pthread_create(&recv_msg_thread, NULL, (void *) recv_msg_handler, NULL) != 0){
+		printf("ERROR: pthread\n");
+		return EXIT_FAILURE;
+	}
+
+	while (1){
+		if(flag){
+			printf("\nBye\n");
+			break;
     }
+	}
 
-    // Connexion au serveur
-    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        printf("\nConnection Failed \n");
-        return -1;
-    }
+	close(sockfd);
 
-    // Boucle pour envoyer et recevoir des messages
-    while (1) {
-        // Lecture du message du clavier
-        printf("Enter message: ");
-        fgets(buffer, 1024, stdin);
-
-        // Envoi du message au serveur
-        send(sock, buffer, strlen(buffer), 0);
-
-        // Vérification si le message est "fin"
-        if (strcmp(buffer, "fin\n") == 0) {
-            break;
-        }
-
-        // Lecture du message en retour du serveur
-        valread = read(sock, buffer, 1024);
-        printf("Server: %s", buffer);
-
-        // Effacement du buffer
-        memset(buffer, 0, sizeof(buffer));
-    }
-
-    // Fermeture du socket client
-    close(sock);
-
-    return 0;
+	return EXIT_SUCCESS;
 }
