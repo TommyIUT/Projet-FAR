@@ -6,6 +6,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
 
 #define PORT 8080
 #define MAX_CLIENTS 2
@@ -43,6 +45,10 @@ int main() {
 
     printf("Waiting for clients...\n");
 
+    // jusqu'ici c'est pareil
+
+
+
     // Boucle pour gérer les clients
     while (1) {
         // Attente d'une connexion entrante
@@ -53,19 +59,15 @@ int main() {
 
         // Ajout du nouveau client à la liste des clients
         client_sockets[num_clients++] = new_socket;
-
-        // Envoi d'un message de bienvenue au nouveau client
-        char *welcome_message = "Welcome to the chat server!\n";
-        send(new_socket, welcome_message, strlen(welcome_message), 0);
-
         printf("New client connected: %s\n", inet_ntoa(address.sin_addr));
 
         // Si le nombre de clients est atteint, on peut commencer à relayer les messages
         if (num_clients == MAX_CLIENTS) {
             // Boucle pour relayer les messages entre les clients
+
             while (1) {
                 // Lecture du message du premier client
-                valread = read(client_sockets[0], buffer, 1024);
+                valread = recv(client_sockets[0], buffer, 1024,0);
                 printf("Client 1: %s\n", buffer);
 
                 // Vérification si le message est "fin"
@@ -80,7 +82,7 @@ int main() {
                 memset(buffer, 0, sizeof(buffer));
 
                 // Lecture du message du deuxième client
-                valread = read(client_sockets[1], buffer, 1024);
+                valread = recv(client_sockets[1], buffer, 1024,0);
                 printf("Client 2: %s\n", buffer);
 
                 // Vérification si le message est "fin"
@@ -103,7 +105,7 @@ int main() {
         memset(client_sockets, 0, sizeof(client_sockets));
         printf("Chat session ended.\n");
     }
-}
+} 
 
 return 0;
 }

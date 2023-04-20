@@ -9,7 +9,7 @@
 
 #define PORT 8080
 
-int main() {
+int main(int argc,char** argv) {
     int sock = 0, valread;
     struct sockaddr_in serv_addr;
     char buffer[1024] = {0};
@@ -35,27 +35,51 @@ int main() {
         printf("\nConnection Failed \n");
         return -1;
     }
-
+    printf("Welcome to the chat server!\n");
     // Boucle pour envoyer et recevoir des messages
     while (1) {
         // Lecture du message du clavier
-        printf("Enter message: ");
-        fgets(buffer, 1024, stdin);
+       
+        if(argv[1][0]=='1')
+        {
+            printf("Enter message: ");
+            fgets(buffer, 1024, stdin);
 
-        // Envoi du message au serveur
-        send(sock, buffer, strlen(buffer), 0);
+            // Envoi du message au serveur
+            send(sock, buffer, strlen(buffer)+1, 0);
 
-        // Vérification si le message est "fin"
-        if (strcmp(buffer, "fin\n") == 0) {
-            break;
+            // Vérification si le message est "fin"
+            if (strcmp(buffer, "fin\n") == 0) {
+                break;
+            }
+
+            // Lecture du message en retour du serveur
+            valread = recv(sock, buffer, 1024,0);
+            printf("Server: %s", buffer);
+
+            // Effacement du buffer
+            memset(buffer, 0, sizeof(buffer));
+
+
         }
 
-        // Lecture du message en retour du serveur
-        valread = read(sock, buffer, 1024);
-        printf("Server: %s", buffer);
+        if(argv[1][0]=='2')
+        {
+             // Lecture du message en retour du serveur
+            valread = recv(sock, buffer, 1024,0);
+            printf("Server: %s", buffer);
+            printf("Enter message: ");
+            fgets(buffer, 1024, stdin);
 
-        // Effacement du buffer
-        memset(buffer, 0, sizeof(buffer));
+            // Envoi du message au serveur
+            send(sock, buffer, strlen(buffer)+1, 0);
+
+            // Vérification si le message est "fin"
+            if (strcmp(buffer, "fin\n") == 0) {
+                break;
+            }
+        }
+
     }
 
     // Fermeture du socket client
