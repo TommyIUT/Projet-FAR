@@ -43,6 +43,7 @@ int main(int argc,char** argv) {
        
         if(argv[1][0]=='1')
         {
+            // Ecriture du message
             printf("Enter message: ");
             fgets(buffer, 1024, stdin);
 
@@ -69,6 +70,8 @@ int main(int argc,char** argv) {
              // Lecture du message en retour du serveur
             valread = recv(sock, buffer, 1024,0);
             printf("Server: %s", buffer);
+
+            // Ecrire de la réponse
             printf("Enter message: ");
             fgets(buffer, 1024, stdin);
 
