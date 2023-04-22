@@ -10,9 +10,10 @@
 #define PORT 8080
 
 int main(int argc,char** argv) {
+    // Création des variables
     int sock = 0, valread;
     struct sockaddr_in serv_addr;
-    char buffer[1024] = {0};
+    char buffer[1024] = {0}; //données a envoyer
 
     // Création du socket client
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
