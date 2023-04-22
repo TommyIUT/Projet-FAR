@@ -16,7 +16,7 @@ volatile sig_atomic_t flag = 0; // gère les signaux
 int sockfd = 0;
 char name[32];
 
-// prépare le message a ecrire
+// Affichage, met un >
 void str_overwrite_stdout() {
   printf("%s", "> ");
   // vide le tampon de sortie
