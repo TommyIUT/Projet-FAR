@@ -195,8 +195,8 @@ int main(int argc, char **argv){
  	// ignore le signal pipe
 	signal(SIGPIPE, SIG_IGN);
 
-	// ajoute SO_REUSEPORT et SO_REUSEADDR a la socket : reutilise le meme port et la meme adresse ip pour plusieurs socket
-	if(setsockopt(listenfd, SOL_SOCKET,(SO_REUSEPORT | SO_REUSEADDR),(char*)&option,sizeof(option)) < 0){
+	// ajoute SO_REUSEADDR a la socket : reutilise le meme port et la meme adresse ip pour plusieurs socket
+	if(setsockopt(listenfd, SOL_SOCKET,SO_REUSEADDR,(char*)&option,sizeof(option)) < 0){
 		perror("ERROR: setsockopt failed");
    		return EXIT_FAILURE;
 	}
