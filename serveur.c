@@ -13,11 +13,12 @@
 #define MAX_CLIENTS 2
 
 int main() {
+    // Création des variables
     int server_fd, new_socket, valread;
-    struct sockaddr_in address;
+    struct sockaddr_in address;  
     int addrlen = sizeof(address);
-    char buffer[1024] = {0};
-    int client_sockets[MAX_CLIENTS] = {0};
+    char buffer[1024] = {0}; // stocke les données envoyées et reçues depuis les clients
+    int client_sockets[MAX_CLIENTS] = {0}; 
     int num_clients = 0;
 
     // Création du socket serveur
@@ -90,7 +91,7 @@ int main() {
                     break;
                 }
 
-                // Envoi du message
+            // Envoi du message
             send(client_sockets[0], buffer, strlen(buffer), 0);
 
             // Effacement du buffer
@@ -100,6 +101,7 @@ int main() {
         // Fermeture des sockets clients
         close(client_sockets[0]);
         close(client_sockets[1]);
+
         // Réinitialisation de la liste des sockets clients et du nombre de clients
         num_clients = 0;
         memset(client_sockets, 0, sizeof(client_sockets));
