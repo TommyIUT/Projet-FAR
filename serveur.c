@@ -11,7 +11,7 @@
 #include <signal.h>
 
 // nb d'user max et taille max des messages
-#define MAX_CLIENTS 2
+#define MAX_CLIENTS 10
 #define BUFFER_SZ 2048
 
 // Valeurs globales
