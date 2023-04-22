@@ -122,14 +122,14 @@ int main(int argc, char **argv){
 	server_addr.sin_port = htons(port);
 
 
- 	 // Connect to Server
+ 	 // Connexion au serveur
   	int err = connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
  	 if (err == -1) {
 		printf("ERROR: connect\n");
 		return EXIT_FAILURE;
 	}
 
-	// Send name
+	// Envoie le nom du client
 	send(sockfd, name, 32, 0);
 
 	// Message qui indique qu'on est bien connectés
