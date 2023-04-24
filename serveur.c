@@ -221,7 +221,7 @@ int main(int argc, char **argv){
 		connfd = accept(listenfd, (struct sockaddr*)&cli_addr, &clilen);
 
 		// vérifie si le nombre de clients max est atteint
-		if((cli_count + 1) == MAX_CLIENTS){
+		if((cli_count + 1) > MAX_CLIENTS){
 			printf("Max clients reached. Rejected: ");
 			print_client_addr(cli_addr);
 			printf(":%d\n", cli_addr.sin_port);
