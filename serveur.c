@@ -125,6 +125,29 @@ void send_message_all(char *s){
     pthread_mutex_unlock(&clients_mutex);
 }
 
+// Envoie un message a un seul client
+void send_mp(char *s, int uid){
+    pthread_mutex_lock(&clients_mutex);
+
+    for(int i=0; i<MAX_CLIENTS; ++i){
+        if(clients[i]){
+            if(clients[i]->uid == uid){
+                if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+                    perror("ERROR: write to descriptor failed");
+                    break;
+                }
+            }
+        }
+    }
+
+    pthread_mutex_unlock(&clients_mutex);
+}
+
+void send_manuel(int uid){
+	char* s = "\nTo send a private message : /mp @username\nTo logout : /end\nTo request the manual : /man\n";
+	send_mp(s,uid);
+}
+
 void catch_ctrl_c_and_exit(int sig) {
 	send_message_all("\nThe chat ended.\n");
 	printf("\nThe chat ended.\n");
@@ -164,10 +187,24 @@ void *handle_client(void *arg){
 		int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
 		if (receive > 0){
 			if(strlen(buff_out) > 0){
-				// envoie le message aux autres clients
-				send_message(buff_out, cli->uid);
-				str_trim_lf(buff_out, strlen(buff_out));
-				printf("%s\n", buff_out);
+				// la où commence réelement le msg (+2 pour : et l'espace qui suivent le nom)
+				int index = strlen(cli->name)+2;
+				int len = strlen(buff_out);
+				char msg[len-index+1];
+				memcpy(msg, &buff_out[index], len - index);
+   				msg[len - index] = '\0';
+				if(msg[0] == '/') {
+					str_trim_lf(msg, strlen(msg));
+					if(strcmp(msg, "/man") == 0){
+						send_manuel(cli->uid);
+					}
+				}else{
+					// envoie le message aux autres clients
+					send_message(buff_out, cli->uid);
+					str_trim_lf(buff_out, strlen(buff_out));
+					printf("%s\n", buff_out);
+				}
+				
 			}
 		// si le client se déconnecte
 		} else if (receive == 0 || strcmp(buff_out, "exit") == 0){
