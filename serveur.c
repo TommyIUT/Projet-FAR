@@ -195,9 +195,7 @@ void *handle_client(void *arg){
    				msg[len - index] = '\0';
 				if(msg[0] == '/') {
 					str_trim_lf(msg, strlen(msg));
-					if(strcmp(msg, "/man") == 0){
-						send_manuel(cli->uid);
-					}
+					function_handler(msg,cli->uid);
 				}else{
 					// envoie le message aux autres clients
 					send_message(buff_out, cli->uid);
@@ -229,6 +227,12 @@ void *handle_client(void *arg){
 	pthread_detach(pthread_self());
 
 	return NULL;
+}
+
+void function_handler(char *s, int uid) {
+	if(strcmp(s, "/man") == 0){
+		send_manuel(uid);
+	}
 }
 
 int main(int argc, char **argv){
