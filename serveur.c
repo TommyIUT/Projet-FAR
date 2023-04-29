@@ -17,6 +17,7 @@
 // Valeurs globales
 
 static _Atomic unsigned int cli_count = 0; // nb client
+static _Atomic unsigned int cli_restant = MAX_CLIENTS; // nb client
 static int uid = 10; // client id
 
 // type client
@@ -161,6 +162,7 @@ void *handle_client(void *arg){
 	int leave_flag = 0;
 
 	cli_count++;
+	cli_restant--;
 	client_t *cli = (client_t *)arg;
 
 	// Reçoit le nom du client connecté
@@ -168,10 +170,22 @@ void *handle_client(void *arg){
 		printf("Didn't enter the name.\n");
 		leave_flag = 1;
 	} else{
+		// vérifie si le pseudo est unique
+		int doublon = 1;
+		for(int i=0; i<MAX_CLIENTS; ++i){
+        if(clients[i]){
+            if(strcmp(clients[i]->name, name)==0){
+                printf("deux clients pareil");
+            }else{
+				printf("erreur");
+			}
+       		}	
+   		}
 		// Accueille le client
 		strcpy(cli->name, name);
 		sprintf(buff_out, "%s has joined\n", cli->name);
-		printf("%s", buff_out);
+		printf("%s\n", buff_out);
+		printf("%d places restantes.\n", cli_restant);
 		send_message(buff_out, cli->uid);
 	}
 
@@ -224,6 +238,7 @@ void *handle_client(void *arg){
 	queue_remove(cli->uid);
 	free(cli);
 	cli_count--;
+	cli_restant++;
 	pthread_detach(pthread_self());
 
 	return NULL;
