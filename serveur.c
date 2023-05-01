@@ -150,6 +150,9 @@ void send_manuel(int uid){
 }
 
 void mp_handler(char *s,int uid){
+	char* id_send = "";
+	char* id_receive = "";
+	char* msg = "";
 	
 	send_mp(s,uid);
 }
@@ -175,6 +178,14 @@ void *handle_client(void *arg){
 		printf("Didn't enter the name.\n");
 		leave_flag = 1;
 	} else{
+		//vérifie si le pseudo a un espace 
+		int ouiespace = 0;
+		for (int i = 0; name[i] != '\0'; i++) {
+			if (name[i]==' ') {
+				ouiespace = 1;
+			}
+   		}
+
 		// vérifie si le pseudo est unique
 		int doublon = 1;
 		for(int i=0; i<MAX_CLIENTS; ++i){
@@ -187,18 +198,24 @@ void *handle_client(void *arg){
 
 		// si doublon == 0 le client a un nom pas unique => ca dégage
 		if (doublon == 0){
-			sprintf(buff_out, "Name %s is already used\n", name);
 			printf("Name %s is already used\n", name);
+			sprintf(buff_out, "Name %s is already used\n", name);
 			send_mp(buff_out,cli->uid);
 			leave_flag = 1;
-		} else{
+		// si ouiespace == 1 le client a un espace dans son nom on accepte pas
+		} else if(ouiespace == 1){
+			printf("Le pseudo contient des espaces\n");
+			sprintf(buff_out, "Pas d'espace dans le pseudo svp\n");
+			send_mp(buff_out,cli->uid);
+			leave_flag = 1;
+		}else{
 			// Accueille le client
 			strcpy(cli->name, name);
 			sprintf(buff_out, "%s has joined\n", cli->name);
 			printf("%s\n", buff_out);
 			printf("%d places restantes.\n", cli_restant);
 			send_message(buff_out, cli->uid);
-			//envoyer au client qui vient de se connecter 5/10 par ex
+			//envoyer au client qui vient de se connecter 5/10 par ex, le nb de gens connectés
 			sprintf(buff_out,"Utilisateurs connectés : %d/%d\n", cli_count, MAX_CLIENTS);
 			send_mp(buff_out,cli->uid);
 		}
