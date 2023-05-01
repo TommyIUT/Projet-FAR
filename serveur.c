@@ -170,23 +170,25 @@ void *handle_client(void *arg){
 		printf("Didn't enter the name.\n");
 		leave_flag = 1;
 	} else{
+		pthread_mutex_lock(&clients_mutex);
 		// vérifie si le pseudo est unique
 		int doublon = 1;
 		for(int i=0; i<MAX_CLIENTS; ++i){
-        if(clients[i]){
-            if(strcmp(clients[i]->name, name)==0){
-                printf("deux clients pareil");
-            }else{
-				printf("erreur");
-			}
-       		}	
-   		}
+			if(clients[i]){
+				if(strcmp(clients[i]->name, name)==0){
+					doublon = 0;
+				}	
+   			}
+		}
+		// si doublon == 0 le client doit etre deco
+		pthread_mutex_unlock(&clients_mutex);
 		// Accueille le client
 		strcpy(cli->name, name);
 		sprintf(buff_out, "%s has joined\n", cli->name);
 		printf("%s\n", buff_out);
 		printf("%d places restantes.\n", cli_restant);
 		send_message(buff_out, cli->uid);
+		//mettre buffer a 0 et envoyer au client qui vient de se connecter 5/10 par ex
 	}
 
 	bzero(buff_out, BUFFER_SZ);
