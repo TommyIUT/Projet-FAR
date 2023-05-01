@@ -68,6 +68,7 @@ void queue_add(client_t *cl){
 	for(int i=0; i < MAX_CLIENTS; ++i){
 		if(!clients[i]){
 			clients[i] = cl;
+			clients[i]->uid = i;
 			break;
 		}
 	}
@@ -144,17 +145,71 @@ void send_mp(char *s, int uid){
     pthread_mutex_unlock(&clients_mutex);
 }
 
+// envoie le manuel à l'utilisateur
 void send_manuel(int uid){
 	char* s = "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\n";
 	send_mp(s,uid);
 }
 
+// gère les messages privés
 void mp_handler(char *s,int uid){
-	char* id_send = "";
-	char* id_receive = "";
-	char* msg = "";
+	char buff_out[BUFFER_SZ]; // Message a envoyer
+	char* id_receive = malloc(sizeof(char) * (strlen(s)+1));
+    char* message = malloc(sizeof(char) * (strlen(s)+1));
+
+    // Récupère l'utilisateur destinataire
+    int i = 4; // commencer après "/mp "
+    int j = 0;
+    while (s[i] != ' ' && s[i] != '\0') {
+        id_receive[j] = s[i];
+        i++;
+        j++;
+    }
+    id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+    // Récupère le message
+    i++; // sauter l'espace
+    j = 0;
+    while (s[i] != '\0') {
+        message[j] = s[i];
+        i++;
+        j++;
+    }
+    message[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+    // recupere le pseudo de celui qui envoit
+	char* id_send = malloc(sizeof(char) * (strlen(s)+1));
+	for(int i=0; i<MAX_CLIENTS; ++i){
+			if(clients[i]){
+				if(clients[i]->uid == uid){
+					strcpy(id_send,clients[i]->name);
+				}	
+   			}
+		}
+
+	// recupere l'uid du receveur'
+	int uid_receive = -1;
+	for(int i=0; i<MAX_CLIENTS; ++i){
+			if(clients[i]){
+				if(strcmp(clients[i]->name, id_receive)==0){
+					uid_receive = i;
+				}
+   			}
+		}
 	
-	send_mp(s,uid);
+
+	if(uid_receive == -1){
+		printf("Le pseudo du destinataire n'existe pas.\n");
+		sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
+		send_mp(buff_out,uid);
+	}else{
+		printf("%s -> %s : %s\n",id_send, id_receive, message);
+		//envoie le mp
+		sprintf(buff_out, "%s vous chuchote : %s\n",id_send,message);
+		send_mp(buff_out,uid_receive);
+	}
+    free(id_receive);
+    free(message);
 }
 
 void catch_ctrl_c_and_exit(int sig) {
@@ -348,7 +403,6 @@ int main(int argc, char **argv){
 		client_t *cli = (client_t *)malloc(sizeof(client_t));
 		cli->address = cli_addr;
 		cli->sockfd = connfd;
-		cli->uid = uid++;
 
 		// ajoute le client
 		queue_add(cli);
