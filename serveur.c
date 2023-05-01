@@ -145,7 +145,12 @@ void send_mp(char *s, int uid){
 }
 
 void send_manuel(int uid){
-	char* s = "\nTo send a private message : /mp @username\nTo logout : /end\nTo request the manual : /man\n";
+	char* s = "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\n";
+	send_mp(s,uid);
+}
+
+void mp_handler(char *s,int uid){
+	
 	send_mp(s,uid);
 }
 
@@ -170,7 +175,6 @@ void *handle_client(void *arg){
 		printf("Didn't enter the name.\n");
 		leave_flag = 1;
 	} else{
-		pthread_mutex_lock(&clients_mutex);
 		// vérifie si le pseudo est unique
 		int doublon = 1;
 		for(int i=0; i<MAX_CLIENTS; ++i){
@@ -180,15 +184,24 @@ void *handle_client(void *arg){
 				}	
    			}
 		}
-		// si doublon == 0 le client doit etre deco
-		pthread_mutex_unlock(&clients_mutex);
-		// Accueille le client
-		strcpy(cli->name, name);
-		sprintf(buff_out, "%s has joined\n", cli->name);
-		printf("%s\n", buff_out);
-		printf("%d places restantes.\n", cli_restant);
-		send_message(buff_out, cli->uid);
-		//mettre buffer a 0 et envoyer au client qui vient de se connecter 5/10 par ex
+
+		// si doublon == 0 le client a un nom pas unique => ca dégage
+		if (doublon == 0){
+			sprintf(buff_out, "Name %s is already used\n", name);
+			printf("Name %s is already used\n", name);
+			send_mp(buff_out,cli->uid);
+			leave_flag = 1;
+		} else{
+			// Accueille le client
+			strcpy(cli->name, name);
+			sprintf(buff_out, "%s has joined\n", cli->name);
+			printf("%s\n", buff_out);
+			printf("%d places restantes.\n", cli_restant);
+			send_message(buff_out, cli->uid);
+			//envoyer au client qui vient de se connecter 5/10 par ex
+			sprintf(buff_out,"Utilisateurs connectés : %d/%d\n", cli_count, MAX_CLIENTS);
+			send_mp(buff_out,cli->uid);
+		}
 	}
 
 	bzero(buff_out, BUFFER_SZ);
@@ -249,6 +262,9 @@ void *handle_client(void *arg){
 void function_handler(char *s, int uid) {
 	if(strcmp(s, "/man") == 0){
 		send_manuel(uid);
+	}
+	if(s[1] == 'm' && s[2]=='p' && s[3]==' ') {
+		mp_handler(s, uid);
 	}
 }
 
