@@ -11,13 +11,13 @@
 #include <signal.h>
 
 // nb d'user max et taille max des messages
-#define MAX_CLIENTS 10
-#define BUFFER_SZ 2048
+#define MAX_CLIENTS 4000
+#define BUFFER_SZ 3000
 
 // Valeurs globales
 
-static _Atomic unsigned int cli_count = 0; // nb client
-static _Atomic unsigned int cli_restant = MAX_CLIENTS; // nb client
+static _Atomic unsigned int cli_count = 0; // nb client connecté
+static _Atomic unsigned int cli_restant = MAX_CLIENTS; // nb client restant
 static int uid = 10; // client id
 
 // type client
@@ -42,7 +42,7 @@ void str_overwrite_stdout() {
 // supprimer le charactère '\n'
 void str_trim_lf (char* arr, int length) {
   int i;
-  for (i = 0; i < length; i++) { // dernier charactère
+  for (i = 0; i < length; i++) { // dernier caractère
     if (arr[i] == '\n') {
       arr[i] = '\0';
       break;
@@ -93,7 +93,7 @@ void queue_remove(int uid){
 	pthread_mutex_unlock(&clients_mutex);
 }
 
-// Envoie un message a tous les clients sauf a celui qui la envoyé
+// Envoie un message à tous les clients sauf à celui qui la envoyé
 void send_message(char *s, int uid){
 	pthread_mutex_lock(&clients_mutex);
 
