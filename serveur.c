@@ -9,10 +9,12 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <dirent.h>
 
 // nb d'user max et taille max des messages
 #define MAX_CLIENTS 4000
 #define BUFFER_SZ 3000
+#define SIZE 1024
 
 // Valeurs globales
 
@@ -147,7 +149,7 @@ void send_mp(char *s, int uid){
 
 // envoie le manuel à l'utilisateur
 void send_manuel(int uid){
-	char* s = "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\n";
+	char* s = "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo display files to send: /file \nTo send a file: /send\nTo download a file: /dl\n";
 	send_mp(s,uid);
 }
 
