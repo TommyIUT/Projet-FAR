@@ -1,446 +1,439 @@
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <pthread.h>
-#include <sys/types.h>
-#include <signal.h>
-#include <dirent.h>
-#include <sys/stat.h>
+	#include <sys/socket.h>
+	#include <netinet/in.h>
+	#include <arpa/inet.h>
+	#include <stdio.h>
+	#include <stdlib.h>
+	#include <unistd.h>
+	#include <errno.h>
+	#include <string.h>
+	#include <pthread.h>
+	#include <sys/types.h>
+	#include <signal.h>
+	#include <dirent.h>
+	#include <sys/stat.h>
 
-// nb d'user max et taille max des messages
-#define MAX_CLIENTS 4000
-#define BUFFER_SZ 3000
-#define SIZE 1024
+	// nb d'user max et taille max des messages
+	#define MAX_CLIENTS 4000
+	#define BUFFER_SZ 3000
+	#define SIZE 1024
 
-// Valeurs globales
+	// Valeurs globales
 
-static _Atomic unsigned int cli_count = 0; // nb client connecté
-static _Atomic unsigned int cli_restant = MAX_CLIENTS; // nb client restant
-static int uid = 10; // client id
+	static _Atomic unsigned int cli_count = 0; // nb client connecté
+	static _Atomic unsigned int cli_restant = MAX_CLIENTS; // nb client restant
+	static int uid = 10; // client id
 
-// type client
-typedef struct{
-	struct sockaddr_in address;
-	int sockfd;
-	int uid;
-	char name[32];
-} client_t;
+	// type client
+	typedef struct{
+		struct sockaddr_in address;
+		int sockfd;
+		int uid;
+		char name[32];
+	} client_t;
 
-client_t *clients[MAX_CLIENTS];
+	client_t *clients[MAX_CLIENTS];
 
-pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+	pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Affichage, met un >
-void str_overwrite_stdout() {
-    printf("\r%s", "> ");
-	// vide le tampon de sortie
-    fflush(stdout);
-}
-
-// supprimer le charactère '\n'
-void str_trim_lf (char* arr, int length) {
-  int i;
-  for (i = 0; i < length; i++) { // dernier caractère
-    if (arr[i] == '\n') {
-      arr[i] = '\0';
-      break;
-    }
-  }
-}
-
-// Affichage de l'adresse ip
-void print_client_addr(struct sockaddr_in addr){
-    printf("%d.%d.%d.%d",
-        addr.sin_addr.s_addr & 0xff,
-        (addr.sin_addr.s_addr & 0xff00) >> 8,
-        (addr.sin_addr.s_addr & 0xff0000) >> 16,
-        (addr.sin_addr.s_addr & 0xff000000) >> 24);
-}
-
-// Ajout d'un client
-void queue_add(client_t *cl){
-	// verouille l'accès au tableau de client au cas ou plusieurs connections en meme temps
-	pthread_mutex_lock(&clients_mutex);
-
-	//parcours le tableau jusqu'a une case qui contient null et ajoute le client
-	for(int i=0; i < MAX_CLIENTS; ++i){
-		if(!clients[i]){
-			clients[i] = cl;
-			clients[i]->uid = i;
-			break;
-		}
+	// Affichage, met un >
+	void str_overwrite_stdout() {
+		printf("\r%s", "> ");
+		// vide le tampon de sortie
+		fflush(stdout);
 	}
 
-	// dévérouille le tableau
-	pthread_mutex_unlock(&clients_mutex);
-}
+	// supprimer le charactère '\n'
+	void str_trim_lf (char* arr, int length) {
+	int i;
+	for (i = 0; i < length; i++) { // dernier caractère
+		if (arr[i] == '\n') {
+		arr[i] = '\0';
+		break;
+		}
+	}
+	}
 
-// Retire le client du serveur avec son id
-void queue_remove(int uid){
-	pthread_mutex_lock(&clients_mutex);
+	// Affichage de l'adresse ip
+	void print_client_addr(struct sockaddr_in addr){
+		printf("%d.%d.%d.%d",
+			addr.sin_addr.s_addr & 0xff,
+			(addr.sin_addr.s_addr & 0xff00) >> 8,
+			(addr.sin_addr.s_addr & 0xff0000) >> 16,
+			(addr.sin_addr.s_addr & 0xff000000) >> 24);
+	}
 
-	for(int i=0; i < MAX_CLIENTS; ++i){
-		if(clients[i]){
-			if(clients[i]->uid == uid){
-				clients[i] = NULL;
+	// Ajout d'un client
+	void queue_add(client_t *cl){
+		// verouille l'accès au tableau de client au cas ou plusieurs connections en meme temps
+		pthread_mutex_lock(&clients_mutex);
+
+		//parcours le tableau jusqu'a une case qui contient null et ajoute le client
+		for(int i=0; i < MAX_CLIENTS; ++i){
+			if(!clients[i]){
+				clients[i] = cl;
+				clients[i]->uid = i;
 				break;
 			}
 		}
+
+		// dévérouille le tableau
+		pthread_mutex_unlock(&clients_mutex);
 	}
 
-	pthread_mutex_unlock(&clients_mutex);
-}
+	// Retire le client du serveur avec son id
+	void queue_remove(int uid){
+		pthread_mutex_lock(&clients_mutex);
 
-// Envoie un message à tous les clients sauf à celui qui la envoyé
-void send_message(char *s, int uid){
-	pthread_mutex_lock(&clients_mutex);
+		for(int i=0; i < MAX_CLIENTS; ++i){
+			if(clients[i]){
+				if(clients[i]->uid == uid){
+					clients[i] = NULL;
+					break;
+				}
+			}
+		}
 
-	for(int i=0; i<MAX_CLIENTS; ++i){
-		if(clients[i]){
-			if(clients[i]->uid != uid){
+		pthread_mutex_unlock(&clients_mutex);
+	}
+
+	// Envoie un message à tous les clients sauf à celui qui la envoyé
+	void send_message(char *s, int uid){
+		pthread_mutex_lock(&clients_mutex);
+
+		for(int i=0; i<MAX_CLIENTS; ++i){
+			if(clients[i]){
+				if(clients[i]->uid != uid){
+					if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+						perror("ERROR: write to descriptor failed");
+						break;
+					}
+				}
+			}
+		}
+
+		pthread_mutex_unlock(&clients_mutex);
+	}
+
+	// Envoie un message a tout les clients
+	void send_message_all(char *s){
+		pthread_mutex_lock(&clients_mutex);
+
+		for(int i=0; i<MAX_CLIENTS; ++i){
+			if(clients[i]){
 				if(write(clients[i]->sockfd, s, strlen(s)) < 0){
 					perror("ERROR: write to descriptor failed");
 					break;
 				}
 			}
 		}
+
+		pthread_mutex_unlock(&clients_mutex);
 	}
 
-	pthread_mutex_unlock(&clients_mutex);
-}
+	// Envoie un message a un seul client
+	void send_mp(char *s, int uid){
+		pthread_mutex_lock(&clients_mutex);
 
-// Envoie un message a tout les clients
-void send_message_all(char *s){
-    pthread_mutex_lock(&clients_mutex);
-
-    for(int i=0; i<MAX_CLIENTS; ++i){
-        if(clients[i]){
-			if(write(clients[i]->sockfd, s, strlen(s)) < 0){
-				perror("ERROR: write to descriptor failed");
-				break;
-			}
-        }
-    }
-
-    pthread_mutex_unlock(&clients_mutex);
-}
-
-// Envoie un message a un seul client
-void send_mp(char *s, int uid){
-    pthread_mutex_lock(&clients_mutex);
-
-    for(int i=0; i<MAX_CLIENTS; ++i){
-        if(clients[i]){
-            if(clients[i]->uid == uid){
-                if(write(clients[i]->sockfd, s, strlen(s)) < 0){
-                    perror("ERROR: write to descriptor failed");
-                    break;
-                }
-            }
-        }
-    }
-
-    pthread_mutex_unlock(&clients_mutex);
-}
-
-// envoie le manuel à l'utilisateur
-void send_manuel(int uid){
-	char* s = "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo display files to send: /file \nTo send a file: /send\nTo download a file: /dl\n";
-	send_mp(s,uid);
-}
-
-
-
-// gère les messages privés
-void mp_handler(char *s,int uid){
-	char buff_out[BUFFER_SZ]; // Message a envoyer
-	char* id_receive = malloc(sizeof(char) * (strlen(s)+1));
-    char* message = malloc(sizeof(char) * (strlen(s)+1));
-
-    // Récupère l'utilisateur destinataire
-    int i = 4; // commencer après "/mp "
-    int j = 0;
-    while (s[i] != ' ' && s[i] != '\0') {
-        id_receive[j] = s[i];
-        i++;
-        j++;
-    }
-    id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
-
-    // Récupère le message
-    i++; // sauter l'espace
-    j = 0;
-    while (s[i] != '\0') {
-        message[j] = s[i];
-        i++;
-        j++;
-    }
-    message[j] = '\0'; // ajouter le caractère de fin de chaîne
-
-    // recupere le pseudo de celui qui envoit
-	char* id_send = malloc(sizeof(char) * (strlen(s)+1));
-	for(int i=0; i<MAX_CLIENTS; ++i){
-			if(clients[i]){
-				if(clients[i]->uid == uid){
-					strcpy(id_send,clients[i]->name);
-				}	
-   			}
-		}
-
-	// recupere l'uid du receveur'
-	int uid_receive = -1;
-	for(int i=0; i<MAX_CLIENTS; ++i){
-			if(clients[i]){
-				if(strcmp(clients[i]->name, id_receive)==0){
-					uid_receive = i;
-				}
-   			}
-		}
-	
-
-	if(uid_receive == -1){
-		printf("Le pseudo du destinataire n'existe pas.\n");
-		sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
-		send_mp(buff_out,uid);
-	}else{
-		printf("%s -> %s : %s\n",id_send, id_receive, message);
-		//envoie le mp
-		sprintf(buff_out, "%s vous chuchote : %s\n",id_send,message);
-		send_mp(buff_out,uid_receive);
-	}
-    free(id_receive);
-    free(message);
-}
-
-void catch_ctrl_c_and_exit(int sig) {
-	send_message_all("\nThe chat ended.\n");
-	printf("\nThe chat ended.\n");
-	exit(0);
-}
-
-void receive_file(int sockfd, const char* filename) {
-    FILE* fp = fopen(filename, "w");
-    if (fp == NULL) {
-        perror("[-]Error in creating file");
-        return;
-    }
- 
-    char buffer[SIZE];
-    int bytes_received;
-    while ((bytes_received = recv(sockfd, buffer, SIZE, 0)) > 0) {
-        fwrite(buffer, sizeof(char), bytes_received, fp);
-        bzero(buffer, SIZE);
-    }
- 
-    fclose(fp);
-}
-
-// Gère le client connecté
-void *handle_client(void *arg){
-	char buff_out[BUFFER_SZ]; // Message a envoyer
-	char name[32];
-	int leave_flag = 0;
-	char filename[50];
-
-	cli_count++;
-	cli_restant--;
-	client_t *cli = (client_t *)arg;
-
-	// Reçoit le nom du client connecté
-	if(recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) <  2 || strlen(name) >= 32-1){
-		printf("Didn't enter the name.\n");
-		leave_flag = 1;
-	} else{
-		//vérifie si le pseudo a un espace 
-		int ouiespace = 0;
-		for (int i = 0; name[i] != '\0'; i++) {
-			if (name[i]==' ') {
-				ouiespace = 1;
-			}
-   		}
-
-		// vérifie si le pseudo est unique
-		int doublon = 1;
 		for(int i=0; i<MAX_CLIENTS; ++i){
 			if(clients[i]){
-				if(strcmp(clients[i]->name, name)==0){
-					doublon = 0;
-				}	
-   			}
+				if(clients[i]->uid == uid){
+					if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+						perror("ERROR: write to descriptor failed");
+						break;
+					}
+				}
+			}
 		}
 
-		// si doublon == 0 le client a un nom pas unique => ca dégage
-		if (doublon == 0){
-			printf("Name %s is already used\n", name);
-			sprintf(buff_out, "Name %s is already used\n", name);
-			send_mp(buff_out,cli->uid);
-			leave_flag = 1;
-		// si ouiespace == 1 le client a un espace dans son nom on accepte pas
-		} else if(ouiespace == 1){
-			printf("Le pseudo contient des espaces\n");
-			sprintf(buff_out, "Pas d'espace dans le pseudo svp\n");
-			send_mp(buff_out,cli->uid);
-			leave_flag = 1;
-		}else{
-			// Accueille le client
-			strcpy(cli->name, name);
-			sprintf(buff_out, "%s has joined\n", cli->name);
-			printf("%s\n", buff_out);
-			printf("%d places restantes.\n", cli_restant);
-			send_message(buff_out, cli->uid);
-			//envoyer au client qui vient de se connecter 5/10 par ex, le nb de gens connectés
-			sprintf(buff_out,"Utilisateurs connectés : %d/%d\n", cli_count, MAX_CLIENTS);
-			send_mp(buff_out,cli->uid);
-		}
+		pthread_mutex_unlock(&clients_mutex);
 	}
 
-	bzero(buff_out, BUFFER_SZ);
+	// envoie le manuel à l'utilisateur
+	void send_manuel(int uid){
+		char* s = "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo display files to send: /file \nTo send a file: /send\nTo download a file: /dl\n";
+		send_mp(s,uid);
+	}
 
-	while(1){
-		// sort de la boucle 
-		if (leave_flag) {
-			break;
+
+
+	// gère les messages privés
+	void mp_handler(char *s,int uid){
+		char buff_out[BUFFER_SZ]; // Message a envoyer
+		char* id_receive = malloc(sizeof(char) * (strlen(s)+1));
+		char* message = malloc(sizeof(char) * (strlen(s)+1));
+
+		// Récupère l'utilisateur destinataire
+		int i = 4; // commencer après "/mp "
+		int j = 0;
+		while (s[i] != ' ' && s[i] != '\0') {
+			id_receive[j] = s[i];
+			i++;
+			j++;
 		}
+		id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
 
-		// recoit les fichiers
-		if (recv(cli->sockfd, filename, sizeof(filename), 0) != -1) {
-			strtok(filename, "\n");
-			receive_file(cli->sockfd, filename);
-			printf("\033[32;1;1m## File received: %s ##\033[0m\n\n", filename);
+		// Récupère le message
+		i++; // sauter l'espace
+		j = 0;
+		while (s[i] != '\0') {
+			message[j] = s[i];
+			i++;
+			j++;
 		}
+		message[j] = '\0'; // ajouter le caractère de fin de chaîne
 
-		// reçoit les messages du client
-		int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
-		if (receive > 0){
-			if(strlen(buff_out) > 0){
-				// la où commence réelement le msg (+2 pour : et l'espace qui suivent le nom)
-				int index = strlen(cli->name)+2;
-				int len = strlen(buff_out);
-				char msg[len-index+1];
-				memcpy(msg, &buff_out[index], len - index);
-   				msg[len - index] = '\0';
-				if(msg[0] == '/') {
-					str_trim_lf(msg, strlen(msg));
-					function_handler(msg,cli->uid);
-				}else{
-					// envoie le message aux autres clients
-					send_message(buff_out, cli->uid);
-					str_trim_lf(buff_out, strlen(buff_out));
-					printf("%s\n", buff_out);
+		// recupere le pseudo de celui qui envoit
+		char* id_send = malloc(sizeof(char) * (strlen(s)+1));
+		for(int i=0; i<MAX_CLIENTS; ++i){
+				if(clients[i]){
+					if(clients[i]->uid == uid){
+						strcpy(id_send,clients[i]->name);
+					}	
 				}
-				
 			}
-		// si le client se déconnecte
-		} else if (receive == 0 || strcmp(buff_out, "exit") == 0){
-			// informe les autres clients
-			sprintf(buff_out, "%s has left\n", cli->name);
-			printf("%s", buff_out);
-			send_message(buff_out, cli->uid);
+
+		// recupere l'uid du receveur'
+		int uid_receive = -1;
+		for(int i=0; i<MAX_CLIENTS; ++i){
+				if(clients[i]){
+					if(strcmp(clients[i]->name, id_receive)==0){
+						uid_receive = i;
+					}
+				}
+			}
+		
+
+		if(uid_receive == -1){
+			printf("Le pseudo du destinataire n'existe pas.\n");
+			sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
+			send_mp(buff_out,uid);
+		}else{
+			printf("%s -> %s : %s\n",id_send, id_receive, message);
+			//envoie le mp
+			sprintf(buff_out, "%s vous chuchote : %s\n",id_send,message);
+			send_mp(buff_out,uid_receive);
+		}
+		free(id_receive);
+		free(message);
+	}
+
+	void catch_ctrl_c_and_exit(int sig) {
+		send_message_all("\nThe chat ended.\n");
+		printf("\nThe chat ended.\n");
+		exit(0);
+	}
+
+	void receive_file(int sockfd, const char* filename) {
+		FILE* fp = fopen(filename, "w");
+		if (fp == NULL) {
+			perror("[-]Error in creating file");
+			return;
+		}
+	
+		char buffer[SIZE];
+		int bytes_received;
+		while ((bytes_received = recv(sockfd, buffer, SIZE, 0)) > 0) {
+			fwrite(buffer, sizeof(char), bytes_received, fp);
+			bzero(buffer, SIZE);
+		}
+	
+		fclose(fp);
+	}
+
+	// Gère le client connecté
+	void *handle_client(void *arg){
+		char buff_out[BUFFER_SZ]; // Message a envoyer
+		char name[32];
+		int leave_flag = 0;
+		char filename[50];
+
+		cli_count++;
+		cli_restant--;
+		client_t *cli = (client_t *)arg;
+
+		// Reçoit le nom du client connecté
+		if(recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) <  2 || strlen(name) >= 32-1){
+			printf("Didn't enter the name.\n");
 			leave_flag = 1;
-		} else {
-			printf("ERROR: -1\n");
-			leave_flag = 1;
+		} else{
+			//vérifie si le pseudo a un espace 
+			int ouiespace = 0;
+			for (int i = 0; name[i] != '\0'; i++) {
+				if (name[i]==' ') {
+					ouiespace = 1;
+				}
+			}
+
+			// vérifie si le pseudo est unique
+			int doublon = 1;
+			for(int i=0; i<MAX_CLIENTS; ++i){
+				if(clients[i]){
+					if(strcmp(clients[i]->name, name)==0){
+						doublon = 0;
+					}	
+				}
+			}
+
+			// si doublon == 0 le client a un nom pas unique => ca dégage
+			if (doublon == 0){
+				printf("Name %s is already used\n", name);
+				sprintf(buff_out, "Name %s is already used\n", name);
+				send_mp(buff_out,cli->uid);
+				leave_flag = 1;
+			// si ouiespace == 1 le client a un espace dans son nom on accepte pas
+			} else if(ouiespace == 1){
+				printf("Le pseudo contient des espaces\n");
+				sprintf(buff_out, "Pas d'espace dans le pseudo svp\n");
+				send_mp(buff_out,cli->uid);
+				leave_flag = 1;
+			}else{
+				// Accueille le client
+				strcpy(cli->name, name);
+				sprintf(buff_out, "%s has joined\n", cli->name);
+				printf("%s\n", buff_out);
+				printf("%d places restantes.\n", cli_restant);
+				send_message(buff_out, cli->uid);
+				//envoyer au client qui vient de se connecter 5/10 par ex, le nb de gens connectés
+				sprintf(buff_out,"Utilisateurs connectés : %d/%d\n", cli_count, MAX_CLIENTS);
+				send_mp(buff_out,cli->uid);
+			}
 		}
 
 		bzero(buff_out, BUFFER_SZ);
-	}
 
- 	// Enleve le client du serveur
-	close(cli->sockfd);
-	queue_remove(cli->uid);
-	free(cli);
-	cli_count--;
-	cli_restant++;
-	pthread_detach(pthread_self());
+		while(1){
+			// sort de la boucle 
+			if (leave_flag) {
+				break;
+			}
 
-	return NULL;
-}
+			// reçoit les messages du client
+			int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
+			if (receive > 0){
+				if(strlen(buff_out) > 0){
+					// la où commence réelement le msg (+2 pour : et l'espace qui suivent le nom)
+					int index = strlen(cli->name)+2;
+					int len = strlen(buff_out);
+					char msg[len-index+1];
+					memcpy(msg, &buff_out[index], len - index);
+					msg[len - index] = '\0';
+					if(msg[0] == '/') {
+						str_trim_lf(msg, strlen(msg));
+						function_handler(msg,cli->uid);
+					}else{
+						// envoie le message aux autres clients
+						send_message(buff_out, cli->uid);
+						str_trim_lf(buff_out, strlen(buff_out));
+						printf("%s\n", buff_out);
+					}
+					
+				}
+			// si le client se déconnecte
+			} else if (receive == 0 || strcmp(buff_out, "exit") == 0){
+				// informe les autres clients
+				sprintf(buff_out, "%s has left\n", cli->name);
+				printf("%s", buff_out);
+				send_message(buff_out, cli->uid);
+				leave_flag = 1;
+			} else {
+				printf("ERROR: -1\n");
+				leave_flag = 1;
+			}
 
-void function_handler(char *s, int uid) {
-	if(strcmp(s, "/man") == 0){
-		send_manuel(uid);
-	}
-	if(s[1] == 'm' && s[2]=='p' && s[3]==' ') {
-		mp_handler(s, uid);
-	}
-}
-
-int main(int argc, char **argv){
-	if(argc != 2){
-		printf("Usage: %s <port>\n", argv[0]);
-		return EXIT_FAILURE;
-	}
-
-	char *ip = "127.0.0.1";
-	int port = atoi(argv[1]); // port a ecouter
-	int option = 1;
-	int listenfd = 0, connfd = 0;
-	struct sockaddr_in serv_addr;
-	struct sockaddr_in cli_addr;
-	pthread_t tid;
-	
-
-	// reglages de la socket
-	listenfd = socket(AF_INET, SOCK_STREAM, 0);
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = inet_addr(ip);
-	serv_addr.sin_port = htons(port);
-
- 	// ignore le signal pipe
-	signal(SIGPIPE, SIG_IGN);
-	// pour gerer le ctrl+c
-	signal(SIGINT, catch_ctrl_c_and_exit);
-
-	// ajoute SO_REUSEADDR a la socket : reutilise le meme port et la meme adresse ip pour plusieurs socket
-	if(setsockopt(listenfd, SOL_SOCKET,SO_REUSEADDR,(char*)&option,sizeof(option)) < 0){
-		perror("ERROR: setsockopt failed");
-   		return EXIT_FAILURE;
-	}
-
-	// associe la socket a l'adresse et port du serveur
-	if(bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
-		perror("ERROR: Socket binding failed");
-		return EXIT_FAILURE;
-	}
-
- 	// met le socket en mode ecoute
-	if (listen(listenfd, 10) < 0) {
-		perror("ERROR: Socket listening failed");
-		return EXIT_FAILURE;
-	}
-
-	printf("=== WELCOME TO THE CHATROOM ===\n");
-
-	while(1){
-		// Accetpe les demande de connexion des clients
-		socklen_t clilen = sizeof(cli_addr);
-		connfd = accept(listenfd, (struct sockaddr*)&cli_addr, &clilen);
-
-		// vérifie si le nombre de clients max est atteint
-		if((cli_count + 1) == MAX_CLIENTS){
-			printf("Max clients reached. Rejected: ");
-			print_client_addr(cli_addr);
-			printf(":%d\n", cli_addr.sin_port);
-			close(connfd);
-			continue;
+			bzero(buff_out, BUFFER_SZ);
 		}
 
-		// instancie le type client
-		client_t *cli = (client_t *)malloc(sizeof(client_t));
-		cli->address = cli_addr;
-		cli->sockfd = connfd;
+		// Enleve le client du serveur
+		close(cli->sockfd);
+		queue_remove(cli->uid);
+		free(cli);
+		cli_count--;
+		cli_restant++;
+		pthread_detach(pthread_self());
 
-		// ajoute le client
-		queue_add(cli);
-		pthread_create(&tid, NULL, &handle_client, (void*)cli);
-
-		sleep(1);
+		return NULL;
 	}
 
-	return EXIT_SUCCESS;
-}
+	void function_handler(char *s, int uid) {
+		if(strcmp(s, "/man") == 0){
+			send_manuel(uid);
+		}
+		if(s[1] == 'm' && s[2]=='p' && s[3]==' ') {
+			mp_handler(s, uid);
+		}
+	}
+
+	int main(int argc, char **argv){
+		if(argc != 2){
+			printf("Usage: %s <port>\n", argv[0]);
+			return EXIT_FAILURE;
+		}
+
+		char *ip = "127.0.0.1";
+		int port = atoi(argv[1]); // port a ecouter
+		int option = 1;
+		int listenfd = 0, connfd = 0;
+		struct sockaddr_in serv_addr;
+		struct sockaddr_in cli_addr;
+		pthread_t tid;
+		
+
+		// reglages de la socket
+		listenfd = socket(AF_INET, SOCK_STREAM, 0);
+		serv_addr.sin_family = AF_INET;
+		serv_addr.sin_addr.s_addr = inet_addr(ip);
+		serv_addr.sin_port = htons(port);
+
+		// ignore le signal pipe
+		signal(SIGPIPE, SIG_IGN);
+		// pour gerer le ctrl+c
+		signal(SIGINT, catch_ctrl_c_and_exit);
+
+		// ajoute SO_REUSEADDR a la socket : reutilise le meme port et la meme adresse ip pour plusieurs socket
+		if(setsockopt(listenfd, SOL_SOCKET,SO_REUSEADDR,(char*)&option,sizeof(option)) < 0){
+			perror("ERROR: setsockopt failed");
+			return EXIT_FAILURE;
+		}
+
+		// associe la socket a l'adresse et port du serveur
+		if(bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+			perror("ERROR: Socket binding failed");
+			return EXIT_FAILURE;
+		}
+
+		// met le socket en mode ecoute
+		if (listen(listenfd, 10) < 0) {
+			perror("ERROR: Socket listening failed");
+			return EXIT_FAILURE;
+		}
+
+		printf("=== WELCOME TO THE CHATROOM ===\n");
+
+		while(1){
+			// Accetpe les demande de connexion des clients
+			socklen_t clilen = sizeof(cli_addr);
+			connfd = accept(listenfd, (struct sockaddr*)&cli_addr, &clilen);
+
+			// vérifie si le nombre de clients max est atteint
+			if((cli_count + 1) == MAX_CLIENTS){
+				printf("Max clients reached. Rejected: ");
+				print_client_addr(cli_addr);
+				printf(":%d\n", cli_addr.sin_port);
+				close(connfd);
+				continue;
+			}
+
+			// instancie le type client
+			client_t *cli = (client_t *)malloc(sizeof(client_t));
+			cli->address = cli_addr;
+			cli->sockfd = connfd;
+
+			// ajoute le client
+			queue_add(cli);
+			pthread_create(&tid, NULL, &handle_client, (void*)cli);
+
+			sleep(1);
+		}
+
+		return EXIT_SUCCESS;
+	}
