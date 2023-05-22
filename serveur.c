@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <dirent.h>
+#include <sys/stat.h>
 
 // nb d'user max et taille max des messages
 #define MAX_CLIENTS 4000
@@ -153,6 +154,8 @@ void send_manuel(int uid){
 	send_mp(s,uid);
 }
 
+
+
 // gère les messages privés
 void mp_handler(char *s,int uid){
 	char buff_out[BUFFER_SZ]; // Message a envoyer
@@ -220,11 +223,29 @@ void catch_ctrl_c_and_exit(int sig) {
 	exit(0);
 }
 
+void receive_file(int sockfd, const char* filename) {
+    FILE* fp = fopen(filename, "w");
+    if (fp == NULL) {
+        perror("[-]Error in creating file");
+        return;
+    }
+ 
+    char buffer[SIZE];
+    int bytes_received;
+    while ((bytes_received = recv(sockfd, buffer, SIZE, 0)) > 0) {
+        fwrite(buffer, sizeof(char), bytes_received, fp);
+        bzero(buffer, SIZE);
+    }
+ 
+    fclose(fp);
+}
+
 // Gère le client connecté
 void *handle_client(void *arg){
 	char buff_out[BUFFER_SZ]; // Message a envoyer
 	char name[32];
 	int leave_flag = 0;
+	char filename[50];
 
 	cli_count++;
 	cli_restant--;
@@ -284,6 +305,13 @@ void *handle_client(void *arg){
 		// sort de la boucle 
 		if (leave_flag) {
 			break;
+		}
+
+		// recoit les fichiers
+		if (recv(cli->sockfd, filename, sizeof(filename), 0) != -1) {
+			strtok(filename, "\n");
+			receive_file(cli->sockfd, filename);
+			printf("\033[32;1;1m## File received: %s ##\033[0m\n\n", filename);
 		}
 
 		// reçoit les messages du client
@@ -355,6 +383,7 @@ int main(int argc, char **argv){
 	struct sockaddr_in serv_addr;
 	struct sockaddr_in cli_addr;
 	pthread_t tid;
+	
 
 	// reglages de la socket
 	listenfd = socket(AF_INET, SOCK_STREAM, 0);
