@@ -105,7 +105,7 @@ void write_file(int sockfd, char* filename) {
   return;
 }
 
-void file(sfile* sfiles) { 
+void file(sfile* sfiles,char* ip) { 
   int stop = 0;
   strtok(sfiles->filename,"\n");  
   struct dirent *dir;
@@ -118,7 +118,8 @@ void file(sfile* sfiles) {
   }
 
   if (stop) { // Filename exists
-    int port = 3030;
+    int port = ip;
+	printf("%d",port);
     int e;
 
     int sockfd;
@@ -150,8 +151,8 @@ void file(sfile* sfiles) {
   pthread_exit(0);
 }
 
-void downloadFile(sfile* sfiles) {
-  int port = 3033;
+void downloadFile(sfile* sfiles,char* ip) {
+  int port = ip;
   int e;
   strtok(sfiles->filename,"\n");
  
@@ -188,7 +189,6 @@ void executeCommand(char* content, sfile* sfiles, char* ip, char* buffer, char* 
     strcat(save,name);
     strtok(toCompare,"\0");
     strtok(toCompare,"\n");
-	printf("%s",buffer);
     if (strcmp(toCompare,"/list") == 0) { listFile(); } // List of personnal files
     else if (strcmp(toCompare,"/man") == 0) { // ask for manual
 		// L'envoie au serveur
@@ -198,7 +198,6 @@ void executeCommand(char* content, sfile* sfiles, char* ip, char* buffer, char* 
 		// L'envoie au serveur
 		send(sockfd, buffer, strlen(buffer), 0);
     }else if (strcmp(toCompare,"/send") == 0) { // send a file to the server
-		printf("send");
 		pthread_t threadFile;
       	sfiles->ip = ip;
      	sfiles->filename = name;
