@@ -9,14 +9,18 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 // nb d'user max et taille max des messages
-#define MAX_CLIENTS 2
-#define BUFFER_SZ 2048
+#define MAX_CLIENTS 4000
+#define BUFFER_SZ 3000
+#define SIZE 1024
 
 // Valeurs globales
 
-static _Atomic unsigned int cli_count = 0; // nb client
+static _Atomic unsigned int cli_count = 0; // nb client connecté
+static _Atomic unsigned int cli_restant = MAX_CLIENTS; // nb client restant
 static int uid = 10; // client id
 
 // type client
@@ -41,7 +45,7 @@ void str_overwrite_stdout() {
 // supprimer le charactère '\n'
 void str_trim_lf (char* arr, int length) {
   int i;
-  for (i = 0; i < length; i++) { // dernier charactère
+  for (i = 0; i < length; i++) { // dernier caractère
     if (arr[i] == '\n') {
       arr[i] = '\0';
       break;
@@ -67,6 +71,7 @@ void queue_add(client_t *cl){
 	for(int i=0; i < MAX_CLIENTS; ++i){
 		if(!clients[i]){
 			clients[i] = cl;
+			clients[i]->uid = i;
 			break;
 		}
 	}
@@ -91,7 +96,7 @@ void queue_remove(int uid){
 	pthread_mutex_unlock(&clients_mutex);
 }
 
-// Envoie un message a tout les clients
+// Envoie un message à tous les clients sauf à celui qui la envoyé
 void send_message(char *s, int uid){
 	pthread_mutex_lock(&clients_mutex);
 
@@ -109,13 +114,141 @@ void send_message(char *s, int uid){
 	pthread_mutex_unlock(&clients_mutex);
 }
 
+// Envoie un message a tout les clients
+void send_message_all(char *s){
+    pthread_mutex_lock(&clients_mutex);
+
+    for(int i=0; i<MAX_CLIENTS; ++i){
+        if(clients[i]){
+			if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+				perror("ERROR: write to descriptor failed");
+				break;
+			}
+        }
+    }
+
+    pthread_mutex_unlock(&clients_mutex);
+}
+
+// Envoie un message a un seul client
+void send_mp(char *s, int uid){
+    pthread_mutex_lock(&clients_mutex);
+
+    for(int i=0; i<MAX_CLIENTS; ++i){
+        if(clients[i]){
+            if(clients[i]->uid == uid){
+                if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+                    perror("ERROR: write to descriptor failed");
+                    break;
+                }
+            }
+        }
+    }
+
+    pthread_mutex_unlock(&clients_mutex);
+}
+
+// envoie le manuel à l'utilisateur
+void send_manuel(int uid){
+	char* s = "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo display files to send: /file \nTo send a file: /send\nTo download a file: /dl\n";
+	send_mp(s,uid);
+}
+
+
+
+// gère les messages privés
+void mp_handler(char *s,int uid){
+	char buff_out[BUFFER_SZ]; // Message a envoyer
+	char* id_receive = malloc(sizeof(char) * (strlen(s)+1));
+    char* message = malloc(sizeof(char) * (strlen(s)+1));
+
+    // Récupère l'utilisateur destinataire
+    int i = 4; // commencer après "/mp "
+    int j = 0;
+    while (s[i] != ' ' && s[i] != '\0') {
+        id_receive[j] = s[i];
+        i++;
+        j++;
+    }
+    id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+    // Récupère le message
+    i++; // sauter l'espace
+    j = 0;
+    while (s[i] != '\0') {
+        message[j] = s[i];
+        i++;
+        j++;
+    }
+    message[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+    // recupere le pseudo de celui qui envoit
+	char* id_send = malloc(sizeof(char) * (strlen(s)+1));
+	for(int i=0; i<MAX_CLIENTS; ++i){
+			if(clients[i]){
+				if(clients[i]->uid == uid){
+					strcpy(id_send,clients[i]->name);
+				}	
+   			}
+		}
+
+	// recupere l'uid du receveur'
+	int uid_receive = -1;
+	for(int i=0; i<MAX_CLIENTS; ++i){
+			if(clients[i]){
+				if(strcmp(clients[i]->name, id_receive)==0){
+					uid_receive = i;
+				}
+   			}
+		}
+	
+
+	if(uid_receive == -1){
+		printf("Le pseudo du destinataire n'existe pas.\n");
+		sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
+		send_mp(buff_out,uid);
+	}else{
+		printf("%s -> %s : %s\n",id_send, id_receive, message);
+		//envoie le mp
+		sprintf(buff_out, "%s vous chuchote : %s\n",id_send,message);
+		send_mp(buff_out,uid_receive);
+	}
+    free(id_receive);
+    free(message);
+}
+
+void catch_ctrl_c_and_exit(int sig) {
+	send_message_all("\nThe chat ended.\n");
+	printf("\nThe chat ended.\n");
+	exit(0);
+}
+
+void receive_file(int sockfd, const char* filename) {
+    FILE* fp = fopen(filename, "w");
+    if (fp == NULL) {
+        perror("[-]Error in creating file");
+        return;
+    }
+ 
+    char buffer[SIZE];
+    int bytes_received;
+    while ((bytes_received = recv(sockfd, buffer, SIZE, 0)) > 0) {
+        fwrite(buffer, sizeof(char), bytes_received, fp);
+        bzero(buffer, SIZE);
+    }
+ 
+    fclose(fp);
+}
+
 // Gère le client connecté
 void *handle_client(void *arg){
 	char buff_out[BUFFER_SZ]; // Message a envoyer
 	char name[32];
 	int leave_flag = 0;
+	char filename[50];
 
 	cli_count++;
+	cli_restant--;
 	client_t *cli = (client_t *)arg;
 
 	// Reçoit le nom du client connecté
@@ -123,11 +256,47 @@ void *handle_client(void *arg){
 		printf("Didn't enter the name.\n");
 		leave_flag = 1;
 	} else{
-		// Accueille le client
-		strcpy(cli->name, name);
-		sprintf(buff_out, "%s has joined\n", cli->name);
-		printf("%s", buff_out);
-		send_message(buff_out, cli->uid);
+		//vérifie si le pseudo a un espace 
+		int ouiespace = 0;
+		for (int i = 0; name[i] != '\0'; i++) {
+			if (name[i]==' ') {
+				ouiespace = 1;
+			}
+   		}
+
+		// vérifie si le pseudo est unique
+		int doublon = 1;
+		for(int i=0; i<MAX_CLIENTS; ++i){
+			if(clients[i]){
+				if(strcmp(clients[i]->name, name)==0){
+					doublon = 0;
+				}	
+   			}
+		}
+
+		// si doublon == 0 le client a un nom pas unique => ca dégage
+		if (doublon == 0){
+			printf("Name %s is already used\n", name);
+			sprintf(buff_out, "Name %s is already used\n", name);
+			send_mp(buff_out,cli->uid);
+			leave_flag = 1;
+		// si ouiespace == 1 le client a un espace dans son nom on accepte pas
+		} else if(ouiespace == 1){
+			printf("Le pseudo contient des espaces\n");
+			sprintf(buff_out, "Pas d'espace dans le pseudo svp\n");
+			send_mp(buff_out,cli->uid);
+			leave_flag = 1;
+		}else{
+			// Accueille le client
+			strcpy(cli->name, name);
+			sprintf(buff_out, "%s has joined\n", cli->name);
+			printf("%s\n", buff_out);
+			printf("%d places restantes.\n", cli_restant);
+			send_message(buff_out, cli->uid);
+			//envoyer au client qui vient de se connecter 5/10 par ex, le nb de gens connectés
+			sprintf(buff_out,"Utilisateurs connectés : %d/%d\n", cli_count, MAX_CLIENTS);
+			send_mp(buff_out,cli->uid);
+		}
 	}
 
 	bzero(buff_out, BUFFER_SZ);
@@ -142,10 +311,22 @@ void *handle_client(void *arg){
 		int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
 		if (receive > 0){
 			if(strlen(buff_out) > 0){
-				// envoie le message aux autres clients
-				send_message(buff_out, cli->uid);
-				str_trim_lf(buff_out, strlen(buff_out));
-				printf("%s\n", buff_out);
+				// la où commence réelement le msg (+2 pour : et l'espace qui suivent le nom)
+				int index = strlen(cli->name)+2;
+				int len = strlen(buff_out);
+				char msg[len-index+1];
+				memcpy(msg, &buff_out[index], len - index);
+   				msg[len - index] = '\0';
+				if(msg[0] == '/') {
+					str_trim_lf(msg, strlen(msg));
+					function_handler(msg,cli->uid);
+				}else{
+					// envoie le message aux autres clients
+					send_message(buff_out, cli->uid);
+					str_trim_lf(buff_out, strlen(buff_out));
+					printf("%s\n", buff_out);
+				}
+				
 			}
 		// si le client se déconnecte
 		} else if (receive == 0 || strcmp(buff_out, "exit") == 0){
@@ -167,9 +348,19 @@ void *handle_client(void *arg){
 	queue_remove(cli->uid);
 	free(cli);
 	cli_count--;
+	cli_restant++;
 	pthread_detach(pthread_self());
 
 	return NULL;
+}
+
+void function_handler(char *s, int uid) {
+	if(strcmp(s, "/man") == 0){
+		send_manuel(uid);
+	}
+	if(s[1] == 'm' && s[2]=='p' && s[3]==' ') {
+		mp_handler(s, uid);
+	}
 }
 
 int main(int argc, char **argv){
@@ -185,6 +376,7 @@ int main(int argc, char **argv){
 	struct sockaddr_in serv_addr;
 	struct sockaddr_in cli_addr;
 	pthread_t tid;
+	
 
 	// reglages de la socket
 	listenfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -194,6 +386,8 @@ int main(int argc, char **argv){
 
  	// ignore le signal pipe
 	signal(SIGPIPE, SIG_IGN);
+	// pour gerer le ctrl+c
+	signal(SIGINT, catch_ctrl_c_and_exit);
 
 	// ajoute SO_REUSEADDR a la socket : reutilise le meme port et la meme adresse ip pour plusieurs socket
 	if(setsockopt(listenfd, SOL_SOCKET,SO_REUSEADDR,(char*)&option,sizeof(option)) < 0){
@@ -233,7 +427,6 @@ int main(int argc, char **argv){
 		client_t *cli = (client_t *)malloc(sizeof(client_t));
 		cli->address = cli_addr;
 		cli->sockfd = connfd;
-		cli->uid = uid++;
 
 		// ajoute le client
 		queue_add(cli);
