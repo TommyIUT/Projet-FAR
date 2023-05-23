@@ -223,19 +223,38 @@
 		exit(0);
 	}
 
-	void receive_file(int sockfd, const char* filename) {
+	void receive_file(char *s,int uid) {
+		char buff_out[BUFFER_SZ]; // Message a envoyer
+		char* filename = malloc(sizeof(char) * (strlen(s)+1));
+		char* message = malloc(sizeof(char) * (strlen(s)+1));
+
+		// Récupère le nom du fichier
+		int i = 6; // commencer après "/send "
+		int j = 0;
+		while (s[i] != ' ' && s[i] != '\0') {
+			filename[j] = s[i];
+			i++;
+			j++;
+		}
+		filename[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+		printf("%s",filename);
+
 		FILE* fp = fopen(filename, "w");
 		if (fp == NULL) {
 			perror("[-]Error in creating file");
 			return;
 		}
+
+		// recupere la socket du client qui envoie le fichier
+
 	
 		char buffer[SIZE];
 		int bytes_received;
-		while ((bytes_received = recv(sockfd, buffer, SIZE, 0)) > 0) {
-			fwrite(buffer, sizeof(char), bytes_received, fp);
-			bzero(buffer, SIZE);
-		}
+		//while ((bytes_received = recv(sockfd, buffer, SIZE, 0)) > 0) {
+		//	fwrite(buffer, sizeof(char), bytes_received, fp);
+	//		bzero(buffer, SIZE);
+	//	}
 	
 		fclose(fp);
 	}
@@ -360,6 +379,9 @@
 		}
 		if(s[1] == 'm' && s[2]=='p' && s[3]==' ') {
 			mp_handler(s, uid);
+		}
+		if (s[1]=='s' && s[2]=='e' && s[3]=='n' && s[4] =='d' && s[5]==' '){
+			receive_file(s,uid);
 		}
 	}
 
