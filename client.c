@@ -198,11 +198,8 @@ void executeCommand(char* content, sfile* sfiles, char* ip, char* buffer, char* 
 		// L'envoie au serveur
 		send(sockfd, buffer, strlen(buffer), 0);
     }else if (strcmp(toCompare,"/send") == 0) { // send a file to the server
-		pthread_t threadFile;
-      	sfiles->ip = ip;
-     	sfiles->filename = name;
-    	pthread_create(&threadFile, NULL, (void*)file, sfiles); // Creates a thread that manages the sending of a file
-    	pthread_join(threadFile,NULL);
+    printf("send ?");
+    send(sockfd, buffer, strlen(buffer), 0);
     }else if (strcmp(toCompare,"/dl") == 0) { // Download a file from the server
 		pthread_t threadRFile;
 		sfiles->ip = ip;
