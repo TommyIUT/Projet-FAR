@@ -13,6 +13,9 @@
 #define LENGTH 2048 // Longueur max d'un message
 #define SIZE 1024
 
+
+int port;
+char *ip;
 // Variables globales
 volatile sig_atomic_t flag = 0; // gère les signaux
 int sockfd = 0;
@@ -38,11 +41,6 @@ void str_trim_lf (char* arr, int length) {
       break;
     }
   }
-}
-
-// Gère le ctrl+C
-void catch_ctrl_c_and_exit(int sig) {
-    flag = 1;
 }
 
 int isCommand(char* msg) { // Determines if the message contains a command
@@ -74,117 +72,91 @@ char** getCommand(char* msg) { // recupere la commande
         p = strtok(NULL, d);
         i++;
     }
-	printf("%s",datas);
     free(save);
     return datas;
 }
 
-void send_file(FILE *fp, int sockfd) { 
+void send_file(FILE *fp, int sockfile) { 
   int n;
   char data[SIZE] = {0};
-  while(fread(data, sizeof(char), SIZE, fp) != (unsigned long) NULL) { // There are data to send
-    if (send(sockfd, data, sizeof(data), 0) == -1) { perror("[-]Error in sending file"); exit(1);}
+  int bytes_received;
+
+  while((bytes_received=fread(data, sizeof(char), SIZE, fp)) != (unsigned long) NULL) { // There are data to send
+    if (send(sockfile, data, bytes_received, 0) == -1) { perror("[-]Error in sending file"); exit(1);}
     bzero(data, SIZE);
   }
+
+  close(sockfile);
 }
 
-void write_file(int sockfd, char* filename) {
-  int n;
-  FILE *fp;
-  char buffer[SIZE];
-  char * path = malloc(100*sizeof(char));
-  strcat(path,"./");
-  strcat(path,filename);
-
-  n = recv(sockfd, buffer, SIZE, 0);
-  
-  if (strlen(buffer)==0) { printf("\033[32;1;1m## This file does not exist ##\033[0m\n\n");}
-  else { fp = fopen(filename, "w"); fputs(buffer,fp); bzero(buffer, SIZE); printf("\033[32;1;1m## File received ##\033[0m\n\n");}
-  
-  fclose(fp);
-  return;
-}
-
-void file(sfile* sfiles,char* ip) { 
+void file() { 
   int stop = 0;
-  strtok(sfiles->filename,"\n");  
+  strtok(sfiles.filename,"\n");  
+  
+  listFile();
+  int filenoexists = 1;
+  char* filename = malloc(sizeof(char)*SIZE);
+  
+  char* buffer = malloc(sizeof(char)*SIZE);
+
+ while(filenoexists){
+
+  printf("Écrivez le nom du fichier a envoyer:\n");
+  fgets( filename, (sizeof(char*)*5), stdin );
+  strtok(filename,"\0");
+  strtok(filename,"\n");
+  sfiles.filename = filename;
+  
   struct dirent *dir;
   DIR *d = opendir("."); 
   if (d)  {
     while ((dir = readdir(d)) != NULL) { // There are some files
-      if (strcmp(sfiles->filename,dir->d_name) == 0) { stop=1; }
+      if (strcmp(sfiles.filename,dir->d_name) == 0) { stop=1; filenoexists=0; }
     }
     closedir(d);
   }
+  if (filenoexists){printf("Ce fichier n'existe pas.\n");}
+ }
+
 
   if (stop) { // Filename exists
-    int port = ip;
-	printf("%d",port);
     int e;
+    int sockfile;
 
-    int sockfd;
-    struct sockaddr_in server_addr;
-    FILE *fp;
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if(sockfd < 0) { perror("[-]Error in socket"); exit(1);}
- 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = port;
-    server_addr.sin_addr.s_addr = inet_addr(sfiles->ip);
- 
-    e = connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)); // Connection to the socket
+    struct sockaddr_in server_addrfile;
+    FILE *fp ;
+    sockfile = socket(AF_INET, SOCK_STREAM, 0);
+    server_addrfile.sin_family = AF_INET;
+    server_addrfile.sin_port = htons(port+1);
+    server_addrfile.sin_addr.s_addr = inet_addr(ip);
+    
+    
+    e = connect(sockfile, (struct sockaddr*)&server_addrfile, sizeof(server_addrfile)); // Connection to the socket
 
-    while (e==-1) { e = connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr));}
+   // while (e==-1) { e = connect(sockfile, (struct sockaddr*)&server_addrfile, sizeof(server_addrfile));}
 
-    if( send(sockfd,sfiles->filename,50,0) < 0) { perror("[-]Send failed"); exit(0); }
+    if( send(sockfile,sfiles.filename,SIZE,0) < 0) { perror("[-]Send failed"); exit(0); }
  
-    fp = fopen(sfiles->filename, "r");
+    fp = fopen(sfiles.filename, "r");
     if (fp == NULL) { perror("[-]Error in reading file"); exit(1);}
  
-    send_file(fp, sockfd); // Send the file
+    send_file(fp, sockfile); // Send the file
     printf("\033[32;1;1m## File sent ##\033[0m\n\n");
  
-    close(sockfd);
+    close(sockfile);
   } 
   else { printf("\033[32;1;1m## This file does not exist ##\033[0m\n\n"); }
 
   pthread_exit(0);
 }
 
-void downloadFile(sfile* sfiles,char* ip) {
-  int port = ip;
-  int e;
-  strtok(sfiles->filename,"\n");
- 
-  int sockfd, new_sock;
-  struct sockaddr_in server_addr;
-  FILE *fp;
-  socklen_t addr_size;
-  sockfd = socket(AF_INET, SOCK_STREAM, 0);
-  if(sockfd < 0) { perror("[-]Error in socket"); exit(1); }
- 
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = port;
-  server_addr.sin_addr.s_addr = inet_addr(sfiles->ip);
- 
-  e = connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)); // Connection to the socket
 
-  while (e==-1) { e = connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)); }
-
-  if( send(sockfd,sfiles->filename,50,0) < 0) { perror("[-]Send failed"); exit(0); }
-
-  write_file(sockfd,sfiles->filename); // Receive the file
- 
-  close(sockfd);
-  pthread_exit(0);
-}
-
-void executeCommand(char* content, sfile* sfiles, char* ip, char* buffer, char* nameUser) {
+void executeCommand(char* content, char* ip, char* buffer, char* nameUser) {
     char * save = (char*)malloc(sizeof(char)*100);
     char ** command = getCommand(content);
     char * toCompare = command[0];
     char* name = command[1];
-    strcat(save,toCompare);
+    strcpy(save,toCompare);
     strcat(save," ");
     strcat(save,name);
     strtok(toCompare,"\0");
@@ -198,14 +170,14 @@ void executeCommand(char* content, sfile* sfiles, char* ip, char* buffer, char* 
 		// L'envoie au serveur
 		send(sockfd, buffer, strlen(buffer), 0);
     }else if (strcmp(toCompare,"/send") == 0) { // send a file to the server
-    printf("send ?");
-    send(sockfd, buffer, strlen(buffer), 0);
+      send(sockfd, buffer, strlen(buffer), 0);
+      pthread_t threadRFile; 
+      pthread_create(&threadRFile, NULL, (void*)file, NULL); // Creates a thread that manages the reciving of a file
+      pthread_join(threadRFile,NULL);
     }else if (strcmp(toCompare,"/dl") == 0) { // Download a file from the server
-		pthread_t threadRFile;
-		sfiles->ip = ip;
-		sfiles->filename = name;
-		pthread_create(&threadRFile, NULL, (void*)downloadFile, sfiles); // Creates a thread that manages the reciving of a file
-		pthread_join(threadRFile,NULL);
+      send(sockfd, buffer, strlen(buffer), 0);
+      
+		
     }else{
 		printf("Cette commande n'existe pas\n");
 	}
@@ -213,8 +185,13 @@ void executeCommand(char* content, sfile* sfiles, char* ip, char* buffer, char* 
     free(save);
 }
 
+// Gère le ctrl+C
+void catch_ctrl_c_and_exit(int sig) {
+    flag = 1;
+}
+
 // envoie des msg au serveur
-void send_msg_handler(char *argv[]	) {
+void send_msg_handler(char *argv[]) {
 	char message[LENGTH] = {};
 	char buffer[LENGTH + 32] = {};
 
@@ -224,14 +201,15 @@ void send_msg_handler(char *argv[]	) {
 		str_overwrite_stdout();
 		fgets(message, LENGTH, stdin);
 		str_trim_lf(message, LENGTH);
-		int iscommand=isCommand(message);
+    int iscommand=isCommand(message);
+
 		// sort de la boucle quand 'fin' est ecrit
-		if (strcmp(message, "/end") == 0) {
+		if (strcmp(message, "fin") == 0) {
 			break;
-		}else if(iscommand){
-			// affiche le message
-			sprintf(buffer, "%s: %s\n", name, message);
-			executeCommand(message,&sfiles,argv[1], buffer, name);
+    }else if(iscommand){
+    // affiche le message
+    sprintf(buffer, "%s: %s\n", name, message);
+    executeCommand(message,argv[1], buffer, name);
 		} else {
 			// affiche le message
 			sprintf(buffer, "%s: %s\n", name, message);
@@ -274,8 +252,9 @@ int main(int argc, char **argv){
 	}
 
 	// attribue le port et l'adresse ip
-	char *ip = "127.0.0.1";
-	int port = atoi(argv[1]);
+  ip=malloc(15);
+	strcpy(ip,"127.0.0.1");
+	port = atoi(argv[1]);
 
 	// indique avec quelle fonction gerer le signal
 	signal(SIGINT, catch_ctrl_c_and_exit);
