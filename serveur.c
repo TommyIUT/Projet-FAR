@@ -194,7 +194,7 @@ void send_mp(char *s, int uid)
 void send_manuel(int uid)
 {
 	char *s = "\e[1;34m"
-			  "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo send a file : /send\nTo receive a file : /rf id_file\nTo request the list of the files on the server : /li\nTo create a channel : /cc name_channel\nTo request the list of the channels : /lc\nTo join a channel : /jc id_channel\nTo leave a channel : /dc\nTo move a user in a channel : /mu username id_channel\n"
+			  "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo send a file : /send\nTo receive a file : /rf id_file\nTo request the list of the files on the server : /li\nTo create a channel : /cc name_channel\nTo request the list of the channels : /lc\nTo join a channel : /jc id_channel\nTo leave a channel : /dc\nTo move a user in a channel : /mu username id_channel\nTo disconnect a user from a channel : /du username\n"
 			  "\e[0m";
 	send_mp(s, uid);
 }
@@ -275,6 +275,7 @@ void leave_channel(client_t *cli, channel *Channel)
 {
 	char msg[100];
 	sprintf(msg, "\e[1;30myou are leaving channel %s..\n \e[0m", Channel->name);
+	printf("\e[1;30m%s a quitté le channel : %s\e[0m\n",cli->name, Channel->name);
 	cli->channel_co = 11;
 	send_mp(msg, cli->uid);
 	send_mp("\n", cli->uid);
@@ -348,8 +349,9 @@ void move_user(char *s, int uid)
 	{
 		if (11 == atoi(id_channel_en_char))
 		{
-			sprintf(buff_out,"%s moved you in the serveur",clients[uid]);
+			sprintf(buff_out,"\e[1;32m%s disconnected you\e[0m \n",clients[uid]->name);
 			send_mp(buff_out,uid_receive);
+			send_mp("\n",uid_receive);
 			leave_channel(clients[uid_receive], liste_channel[clients[uid_receive]->channel_co]);
 		}
 		for (int i = 0; i < CHANNEL_SZ; i++)
@@ -373,10 +375,73 @@ void move_user(char *s, int uid)
 	free(id_channel_en_char);
 }
 
+void ds_user(char *s, int uid)
+{
+	char buff_out[BUFFER_SZ]; // Message a envoyer
+	char *id_receive = malloc(sizeof(char) * (strlen(s) + 1));
+
+	// Récupère l'utilisateur destinataire
+	int i = 4; // commencer après "/mu "
+	int j = 0;
+	while (s[i] != ' ' && s[i] != '\0')
+	{
+		id_receive[j] = s[i];
+		i++;
+		j++;
+	}
+	id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+	// Récupère l'id du channel en char
+	i++; // sauter l'espace
+	j = 0;
+	
+
+	// recupere le pseudo de celui qui envoit
+	char *id_send = malloc(sizeof(char) * (strlen(s) + 1));
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (clients[i]->uid == uid)
+			{
+				strcpy(id_send, clients[i]->name);
+			}
+		}
+	}
+
+	// recupere l'uid du receveur'
+	int uid_receive = -1;
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (strcmp(clients[i]->name, id_receive) == 0)
+			{
+				uid_receive = i;
+			}
+		}
+	}
+
+	if (uid_receive == -1)
+	{
+		printf("Le pseudo du destinataire n'existe pas.\n");
+		sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
+		send_mp(buff_out, uid);
+	}
+	else
+	{
+		
+			sprintf(buff_out,"%s disconnected you",id_send);
+			send_mp(buff_out,uid_receive);
+			leave_channel(clients[uid_receive], liste_channel[clients[uid_receive]->channel_co]);
+	}
+	free(id_receive);
+}
+
 void catch_ctrl_c_and_exit(int sig)
 {
-	send_message_all("\nThe chat ended.\n");
-	printf("\nThe chat ended.\n");
+	send_message_all("\n\e[1;32mThe chat ended.\e[0m\n");
+	printf("\e[1;32mThe chat ended.\e[0m\n");
 	exit(0);
 }
 
@@ -414,17 +479,23 @@ void afficher_channel_handler(int uid)
 {
 	char msg[100];
 	send_mp("Voici la liste des channels:\n", uid);
-	send_mp("\e[1;31m serveur, id : 11 \e[0m\n", uid);
-	for (int i = 0; i < CHANNEL_SZ; i++)
-	{
+	if (liste_channel[0] == NULL)
+		{
+			send_mp("\e[1;31m Il n'y a pas de channel pour l'instant\e[0m\n", uid);
 
+		}
+	else {
+		for (int i = 0; i < CHANNEL_SZ; i++)
+	{
+		
 		if (liste_channel[i] != NULL)
 		{
-			sprintf(msg, "%s , id : %d", liste_channel[i]->name, i);
+			sprintf(msg, "%s , id : %d\n", liste_channel[i]->name, i);
 			send_mp(msg, uid);
-			send_mp("\n", uid);
 		}
 	}
+	}
+	
 }
 
 void create_channel_handler(char *s, int uid)
@@ -491,7 +562,9 @@ void create_channel_handler(char *s, int uid)
 			{
 				// Utilise l'index comme ID du canal
 				new_channel->uid_channel = index;
+				new_channel->cli_co =0;
 				liste_channel[index] = new_channel;
+				printf("\e[1;30m%s a crée le channel : %s\e[0m\n",clients[uid]->name, new_channel->name);
 			}
 			else
 			{
@@ -530,10 +603,13 @@ channel *find_the_channel(int id_channel, int uid)
 void join_channel(int uid, channel *Channel, client_t *cli)
 {
 	char msg[100];
+	char buff_out[BUFFER_SZ]; // Message a envoyer
 	cli->channel_co = Channel->uid_channel;
+	Channel->cli_co++;
 	sprintf(msg, "   \e[1;31m=== WELCOME TO %s ===\e[0m\n", Channel->name);
 	send_mp(msg, uid);
-	Channel->cli_co++;
+	sprintf(buff_out, "\e[1;35m Utilisateurs connectés : %d/%d \e[0m\n", Channel->cli_co, MAX_CLIENTS);
+	send_mp(buff_out, cli->uid);
 }
 
 void function_handler(char *s, int uid, client_t *cli)
@@ -549,6 +625,10 @@ void function_handler(char *s, int uid, client_t *cli)
 	if (s[1] == 'm' && s[2] == 'u' && s[3] == ' ')
 	{
 		move_user(s, uid);
+	}
+	if (s[1] == 'd' && s[2] == 'u' && s[3] == ' ')
+	{
+		ds_user(s, uid);
 	}
 	if (s[1] == 'c' && s[2] == 'c' && s[3] == ' ')
 	{
@@ -572,10 +652,9 @@ void function_handler(char *s, int uid, client_t *cli)
 	{
 		int channel_id = atoi(&s[4]);
 		// // 	// Effectuez les actions requises avec l'identifiant du fichier
-		printf("Client selected channel ID: %d\n", channel_id);
 
 		channel *channel_voulu = find_the_channel(channel_id, uid);
-		printf("Client selected channel name: %s\n", channel_voulu->name);
+		printf("\e[1;30m%s a join le channel : %s\e[0m\n",clients[uid]->name, channel_voulu->name);
 		join_channel(uid, channel_voulu, cli);
 	}
 
@@ -681,7 +760,7 @@ void *handle_client(void *arg)
 			strcpy(cli->name, name);
 			sprintf(buff_out, "\e[32m%s\e[0m has joined\n", cli->name);
 			printf("%s\n", buff_out);
-			printf("%d places restantes.\n", cli_restant);
+			printf("\e[1;35m%d places restantes.\e[0m\n", cli_restant);
 			send_message(buff_out, cli);
 			// envoyer au client qui vient de se connecter 5/10 par ex, le nb de gens connectés
 			sprintf(buff_out, "\e[1;35m Utilisateurs connectés : %d/%d \e[0m\n", cli_count, MAX_CLIENTS);
