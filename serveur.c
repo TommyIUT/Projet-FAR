@@ -194,7 +194,7 @@ void send_mp(char *s, int uid)
 void send_manuel(int uid)
 {
 	char *s = "\e[1;34m"
-			  "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo receive a file : /rf id_file\nTo request the list of the files on the server : /li\nTo create a channel : /cc name_channel\nTo request the list of the channels : /lc\nTo join a channel : /jc id_channel\nTo leave a channel : /dc\n"
+			  "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo send a file : /send\nTo receive a file : /rf id_file\nTo request the list of the files on the server : /li\nTo create a channel : /cc name_channel\nTo request the list of the channels : /lc\nTo join a channel : /jc id_channel\nTo leave a channel : /dc\n"
 			  "\e[0m";
 	send_mp(s, uid);
 }
