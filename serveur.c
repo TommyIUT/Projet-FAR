@@ -49,6 +49,7 @@ channel* liste_channel[CHANNEL_SZ];
 
 
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t channels_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Affichage, met un >
 void str_overwrite_stdout()
@@ -370,7 +371,7 @@ void create_channel_handler(char *s, int uid) {
 
             strcpy(new_channel->name, channel_name);
 
-
+			pthread_mutex_lock(&channels_mutex);
             // Ajoute le canal à la liste des canaux
             int index = -1;
             for (int i = 0; i < CHANNEL_SZ; ++i) {
@@ -384,13 +385,14 @@ void create_channel_handler(char *s, int uid) {
 				 // Utilise l'index comme ID du canal
                 new_channel->uid_channel = index;
                 liste_channel[index] = new_channel;
-            } else {
+            } 
+			else {
                 printf("No available slots for new channels.\n");
                 sprintf(buff_out, "\e[32mNo available slots for new channels\e[0m\n");
                 send_mp(buff_out, uid);
                 leave_flag = 1;
             }
-
+			pthread_mutex_unlock(&channels_mutex);
             if (!leave_flag) {
                 // Envoie un message de confirmation au client
                 sprintf(buff_out, "\e[32mChannel %s has been created.\e[0m\n", channel_name);
