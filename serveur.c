@@ -197,7 +197,7 @@ void send_mp(char *s, int uid)
 void send_manuel(int uid)
 {
 	char *s = "\e[1;34m"
-			  "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo send a file : /send\nTo receive a file : /rf id_file\nTo request the list of the files on the server : /li\nTo create a channel : /cc name_channel\nTo request the list of the channels : /lc\nTo join a channel : /jc id_channel\nTo leave a channel : /dc\nTo move a user in a channel : /mu username id_channel\nTo disconnect a user from a channel : /du username\nTo enter the admin code :/ad code\n"
+			  "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo send a file : /send\nTo receive a file : /rf id_file\nTo request the list of the files on the server : /li\nTo create a channel(admin only) : /cc name_channel\nTo request the list of the channels : /lc\nTo join a channel : /jc id_channel\nTo leave a channel : /dc\nTo move a user in a channel(admin only) : /mu username id_channel\nTo disconnect a user from a channel(admin only) : /du username\nTo enter the admin code :/ad code\n"
 			  "\e[0m";
 	send_mp(s, uid);
 }
@@ -278,7 +278,7 @@ void leave_channel(client_t *cli, channel *Channel)
 {
 	char msg[100];
 	sprintf(msg, "\e[1;30myou are leaving channel %s..\n \e[0m", Channel->name);
-	printf("\e[1;30m%s a quitté le channel : %s\e[0m\n",cli->name, Channel->name);
+	printf("\e[1;30m%s a quitté le channel : %s\e[0m\n", cli->name, Channel->name);
 	cli->channel_co = 11;
 	send_mp(msg, cli->uid);
 	send_mp("\n", cli->uid);
@@ -294,7 +294,8 @@ void move_user(char *s, int uid)
 	char *id_receive = malloc(sizeof(char) * (strlen(s) + 1));
 	char *id_channel_en_char = malloc(sizeof(char) * (strlen(s) + 1));
 
-	// Récupère l'utilisateur destinataire
+	if(clients[uid]->Isadmin==1){
+		// Récupère l'utilisateur destinataire
 	int i = 4; // commencer après "/mu "
 	int j = 0;
 	while (s[i] != ' ' && s[i] != '\0')
@@ -352,9 +353,9 @@ void move_user(char *s, int uid)
 	{
 		if (11 == atoi(id_channel_en_char))
 		{
-			sprintf(buff_out,"\e[1;32m%s disconnected you\e[0m \n",clients[uid]->name);
-			send_mp(buff_out,uid_receive);
-			send_mp("\n",uid_receive);
+			sprintf(buff_out, "\e[1;32m%s disconnected you\e[0m \n", clients[uid]->name);
+			send_mp(buff_out, uid_receive);
+			send_mp("\n", uid_receive);
 			leave_channel(clients[uid_receive], liste_channel[clients[uid_receive]->channel_co]);
 		}
 		for (int i = 0; i < CHANNEL_SZ; i++)
@@ -374,6 +375,11 @@ void move_user(char *s, int uid)
 			}
 		}
 	}
+	} else{
+		sprintf(buff_out, "\e[1;31m Vous n'êtes pas admin.\e[0m \n");
+		send_mp(buff_out, uid);
+	}
+
 	free(id_receive);
 	free(id_channel_en_char);
 }
@@ -381,70 +387,77 @@ void move_user(char *s, int uid)
 void ds_user(char *s, int uid)
 {
 	char buff_out[BUFFER_SZ]; // Message a envoyer
-	char *id_receive = malloc(sizeof(char) * (strlen(s) + 1));
-
-	// Récupère l'utilisateur destinataire
-	int i = 4; // commencer après "/mu "
-	int j = 0;
-	while (s[i] != ' ' && s[i] != '\0')
+	if (clients[uid]->Isadmin == 1)
 	{
-		id_receive[j] = s[i];
-		i++;
-		j++;
-	}
-	id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
+		char *id_receive = malloc(sizeof(char) * (strlen(s) + 1));
 
-	// Récupère l'id du channel en char
-	i++; // sauter l'espace
-	j = 0;
-	
-
-	// recupere le pseudo de celui qui envoit
-	char *id_send = malloc(sizeof(char) * (strlen(s) + 1));
-	for (int i = 0; i < MAX_CLIENTS; ++i)
-	{
-		if (clients[i])
+		// Récupère l'utilisateur destinataire
+		int i = 4; // commencer après "/mu "
+		int j = 0;
+		while (s[i] != ' ' && s[i] != '\0')
 		{
-			if (clients[i]->uid == uid)
+			id_receive[j] = s[i];
+			i++;
+			j++;
+		}
+		id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+		// Récupère l'id du channel en char
+		i++; // sauter l'espace
+		j = 0;
+
+		// recupere le pseudo de celui qui envoit
+		char *id_send = malloc(sizeof(char) * (strlen(s) + 1));
+		for (int i = 0; i < MAX_CLIENTS; ++i)
+		{
+			if (clients[i])
 			{
-				strcpy(id_send, clients[i]->name);
+				if (clients[i]->uid == uid)
+				{
+					strcpy(id_send, clients[i]->name);
+				}
 			}
 		}
-	}
 
-	// recupere l'uid du receveur'
-	int uid_receive = -1;
-	for (int i = 0; i < MAX_CLIENTS; ++i)
-	{
-		if (clients[i])
+		// recupere l'uid du receveur'
+		int uid_receive = -1;
+		for (int i = 0; i < MAX_CLIENTS; ++i)
 		{
-			if (strcmp(clients[i]->name, id_receive) == 0)
+			if (clients[i])
 			{
-				uid_receive = i;
+				if (strcmp(clients[i]->name, id_receive) == 0)
+				{
+					uid_receive = i;
+				}
 			}
 		}
-	}
 
-	if (uid_receive == -1)
+		if (uid_receive == -1)
+		{
+			printf("Le pseudo du destinataire n'existe pas.\n");
+			sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
+			send_mp(buff_out, uid);
+		}
+		else
+		{
+
+			sprintf(buff_out, "%s disconnected you", id_send);
+			send_mp(buff_out, uid_receive);
+			leave_channel(clients[uid_receive], liste_channel[clients[uid_receive]->channel_co]);
+		}
+		free(id_receive);
+	}
+	else if (clients[uid]->Isadmin == 0)
 	{
-		printf("Le pseudo du destinataire n'existe pas.\n");
-		sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
+		sprintf(buff_out, "\e[1;31m Vous n'êtes pas admin.\e[0m \n");
 		send_mp(buff_out, uid);
 	}
-	else
-	{
-		
-			sprintf(buff_out,"%s disconnected you",id_send);
-			send_mp(buff_out,uid_receive);
-			leave_channel(clients[uid_receive], liste_channel[clients[uid_receive]->channel_co]);
-	}
-	free(id_receive);
 }
 
 void catch_ctrl_c_and_exit(int sig)
 {
-	send_message_all("\n\e[1;32mThe chat ended.\e[0m\n");
-	printf("\e[1;32mThe chat ended.\e[0m\n");
+	send_message_all("\n\e[1;31mThe chat ended.\e[0m\n");
+	printf("\e[1;31mThe chat ended.\e[0m\n");
 	exit(0);
 }
 
@@ -483,109 +496,115 @@ void afficher_channel_handler(int uid)
 	char msg[100];
 	send_mp("Voici la liste des channels:\n", uid);
 	if (liste_channel[0] == NULL)
-		{
-			send_mp("\e[1;31m Il n'y a pas de channel pour l'instant\e[0m\n", uid);
-
-		}
-	else {
-		for (int i = 0; i < CHANNEL_SZ; i++)
 	{
-		
-		if (liste_channel[i] != NULL)
+		send_mp("\e[1;31m Il n'y a pas de channel pour l'instant\e[0m\n", uid);
+	}
+	else
+	{
+		for (int i = 0; i < CHANNEL_SZ; i++)
 		{
-			sprintf(msg, "%s , id : %d\n", liste_channel[i]->name, i);
-			send_mp(msg, uid);
+
+			if (liste_channel[i] != NULL)
+			{
+				sprintf(msg, "%s , id : %d\n", liste_channel[i]->name, i);
+				send_mp(msg, uid);
+			}
 		}
 	}
-	}
-	
 }
 
 void create_channel_handler(char *s, int uid)
 {
 	char buff_out[BUFFER_SZ]; // Message à envoyer
-	char channel_name[32];	  // Nom du canal extrait de la commande
-	int leave_flag = 0;
-
-	strcpy(channel_name, s + 4); // Extrait le nom du canal à partir de la position 4
-
-	// Vérifie si le nom du canal est vide ou invalide
-	if (strlen(channel_name) < 2 || strlen(channel_name) >= 32 - 1)
+	if (clients[uid]->Isadmin == 1)
 	{
-		printf("Invalid channel name.\n");
-		sprintf(buff_out, "\e[32mInvalid channel name\e[0m\n");
-		send_mp(buff_out, uid);
-		leave_flag = 1;
-	}
+		char channel_name[32]; // Nom du canal extrait de la commande
+		int leave_flag = 0;
 
-	if (!leave_flag)
-	{
-		// Vérifie si le nom du canal est déjà utilisé
-		int duplicate = 0;
-		for (int i = 0; i < CHANNEL_SZ; ++i)
-		{
-			if (liste_channel[i])
-			{
-				if (strcmp(liste_channel[i]->name, channel_name) == 0)
-				{
-					duplicate = 1;
-					break;
-				}
-			}
-		}
+		strcpy(channel_name, s + 4); // Extrait le nom du canal à partir de la position 4
 
-		// Si duplicate est vrai, le nom du canal est déjà utilisé
-		if (duplicate)
+		// Vérifie si le nom du canal est vide ou invalide
+		if (strlen(channel_name) < 2 || strlen(channel_name) >= 32 - 1)
 		{
-			printf("Channel name %s is already used.\n", channel_name);
-			sprintf(buff_out, "\e[32mChannel name %s is already used\e[0m\n", channel_name);
+			printf("Invalid channel name.\n");
+			sprintf(buff_out, "\e[32mInvalid channel name\e[0m\n");
 			send_mp(buff_out, uid);
 			leave_flag = 1;
 		}
-		else
+
+		if (!leave_flag)
 		{
-			// Crée le nouveau canal
-			channel *new_channel = (channel *)malloc(sizeof(channel));
-
-			strcpy(new_channel->name, channel_name);
-
-			pthread_mutex_lock(&channels_mutex);
-			// Ajoute le canal à la liste des canaux
-			int index = -1;
+			// Vérifie si le nom du canal est déjà utilisé
+			int duplicate = 0;
 			for (int i = 0; i < CHANNEL_SZ; ++i)
 			{
-				if (!liste_channel[i])
+				if (liste_channel[i])
 				{
-					index = i;
-					break;
+					if (strcmp(liste_channel[i]->name, channel_name) == 0)
+					{
+						duplicate = 1;
+						break;
+					}
 				}
 			}
 
-			if (index != -1)
+			// Si duplicate est vrai, le nom du canal est déjà utilisé
+			if (duplicate)
 			{
-				// Utilise l'index comme ID du canal
-				new_channel->uid_channel = index;
-				new_channel->cli_co =0;
-				liste_channel[index] = new_channel;
-				printf("\e[1;30m%s a crée le channel : %s\e[0m\n",clients[uid]->name, new_channel->name);
-			}
-			else
-			{
-				printf("No available slots for new channels.\n");
-				sprintf(buff_out, "\e[32mNo available slots for new channels\e[0m\n");
+				printf("Channel name %s is already used.\n", channel_name);
+				sprintf(buff_out, "\e[32mChannel name %s is already used\e[0m\n", channel_name);
 				send_mp(buff_out, uid);
 				leave_flag = 1;
 			}
-			pthread_mutex_unlock(&channels_mutex);
-			if (!leave_flag)
+			else
 			{
-				// Envoie un message de confirmation au client
-				sprintf(buff_out, "\e[32mChannel %s has been created.\e[0m\n", channel_name);
-				send_mp(buff_out, uid);
+				// Crée le nouveau canal
+				channel *new_channel = (channel *)malloc(sizeof(channel));
+
+				strcpy(new_channel->name, channel_name);
+
+				pthread_mutex_lock(&channels_mutex);
+				// Ajoute le canal à la liste des canaux
+				int index = -1;
+				for (int i = 0; i < CHANNEL_SZ; ++i)
+				{
+					if (!liste_channel[i])
+					{
+						index = i;
+						break;
+					}
+				}
+
+				if (index != -1)
+				{
+					// Utilise l'index comme ID du canal
+					new_channel->uid_channel = index;
+					new_channel->cli_co = 0;
+					liste_channel[index] = new_channel;
+					printf("\e[1;30m%s a crée le channel : %s\e[0m\n", clients[uid]->name, new_channel->name);
+				}
+				else
+				{
+					printf("No available slots for new channels.\n");
+					sprintf(buff_out, "\e[32mNo available slots for new channels\e[0m\n");
+					send_mp(buff_out, uid);
+					leave_flag = 1;
+				}
+				pthread_mutex_unlock(&channels_mutex);
+				if (!leave_flag)
+				{
+					// Envoie un message de confirmation au client
+					sprintf(buff_out, "\e[32mChannel %s has been created.\e[0m\n", channel_name);
+					send_mp(buff_out, uid);
+				}
 			}
 		}
 	}
-
+	else
+	{
+		sprintf(buff_out, "\e[31mVous n'êtes pas admin.\e[0m\n");
+		send_mp(buff_out, uid);
+	}
 	bzero(buff_out, BUFFER_SZ);
 }
 
@@ -615,7 +634,8 @@ void join_channel(int uid, channel *Channel, client_t *cli)
 	send_mp(buff_out, cli->uid);
 }
 
-void admin_handler(char *s,int uid){
+void admin_handler(char *s, int uid)
+{
 	char buff_out[BUFFER_SZ]; // Message a envoyer
 	char *test_code_admin = malloc(sizeof(char) * (strlen(s) + 1));
 
@@ -630,7 +650,7 @@ void admin_handler(char *s,int uid){
 	}
 	test_code_admin[j] = '\0'; // ajouter le caractère de fin de chaîne
 
-// recupere le pseudo de celui qui envoit
+	// recupere le pseudo de celui qui envoit
 	char *id_send = malloc(sizeof(char) * (strlen(s) + 1));
 	for (int i = 0; i < MAX_CLIENTS; ++i)
 	{
@@ -638,24 +658,26 @@ void admin_handler(char *s,int uid){
 		{
 			if (clients[i]->uid == uid)
 			{
-				strcpy(id_send,clients[i]->name);
+				strcpy(id_send, clients[i]->name);
 			}
 		}
 	}
 
-	if(atoi(test_code_admin)==admin_code) {
-		printf("\e[1;31m%s est devenu admin\e[0m\n",id_send);
+	if (atoi(test_code_admin) == admin_code)
+	{
+		printf("\e[1;31m%s est devenu admin\e[0m\n", id_send);
 		clients[uid]->Isadmin = 1;
+		sprintf(buff_out, "\e[1;31m Vous êtes maintenant admin\e[0m\n");
+		send_mp(buff_out, uid);
 	}
-	else {
-		printf("\e[1;31m%s a échoué pour devenir admin\e[0m\n",id_send);
+	else
+	{
+		printf("\e[1;31m%s a échoué pour devenir admin\e[0m\n", id_send);
 		clients[uid]->Isadmin = 0;
+		sprintf(buff_out, "\e[1;31m Vous avez échoué pour devenir admin\e[0m\n");
+		send_mp(buff_out, uid);
 	}
-
 }
-
-
-
 
 void function_handler(char *s, int uid, client_t *cli)
 {
@@ -703,7 +725,7 @@ void function_handler(char *s, int uid, client_t *cli)
 		// // 	// Effectuez les actions requises avec l'identifiant du fichier
 
 		channel *channel_voulu = find_the_channel(channel_id, uid);
-		printf("\e[1;30m%s a join le channel : %s\e[0m\n",clients[uid]->name, channel_voulu->name);
+		printf("\e[1;30m%s a join le channel : %s\e[0m\n", clients[uid]->name, channel_voulu->name);
 		join_channel(uid, channel_voulu, cli);
 	}
 
