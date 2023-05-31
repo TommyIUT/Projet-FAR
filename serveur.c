@@ -16,6 +16,8 @@
 #define BUFFER_SZ 3000
 #define CHANNEL_SZ 11
 
+#define admin_code 454
+
 #define TAILLE_MAX_FICHIER 1024
 #define PORT_RECEIVE port + 1
 
@@ -34,6 +36,7 @@ typedef struct
 	int uid;
 	char name[32];
 	int channel_co;
+	int Isadmin;
 } client_t;
 
 typedef struct
@@ -194,7 +197,7 @@ void send_mp(char *s, int uid)
 void send_manuel(int uid)
 {
 	char *s = "\e[1;34m"
-			  "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo send a file : /send\nTo receive a file : /rf id_file\nTo request the list of the files on the server : /li\nTo create a channel : /cc name_channel\nTo request the list of the channels : /lc\nTo join a channel : /jc id_channel\nTo leave a channel : /dc\nTo move a user in a channel : /mu username id_channel\nTo disconnect a user from a channel : /du username\n"
+			  "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo send a file : /send\nTo receive a file : /rf id_file\nTo request the list of the files on the server : /li\nTo create a channel : /cc name_channel\nTo request the list of the channels : /lc\nTo join a channel : /jc id_channel\nTo leave a channel : /dc\nTo move a user in a channel : /mu username id_channel\nTo disconnect a user from a channel : /du username\nTo enter the admin code :/ad code\n"
 			  "\e[0m";
 	send_mp(s, uid);
 }
@@ -612,6 +615,48 @@ void join_channel(int uid, channel *Channel, client_t *cli)
 	send_mp(buff_out, cli->uid);
 }
 
+void admin_handler(char *s,int uid){
+	char buff_out[BUFFER_SZ]; // Message a envoyer
+	char *test_code_admin = malloc(sizeof(char) * (strlen(s) + 1));
+
+	// Récupère le code
+	int i = 4; // commencer après "/ad "
+	int j = 0;
+	while (s[i] != ' ' && s[i] != '\0')
+	{
+		test_code_admin[j] = s[i];
+		i++;
+		j++;
+	}
+	test_code_admin[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+// recupere le pseudo de celui qui envoit
+	char *id_send = malloc(sizeof(char) * (strlen(s) + 1));
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (clients[i]->uid == uid)
+			{
+				strcpy(id_send,clients[i]->name);
+			}
+		}
+	}
+
+	if(atoi(test_code_admin)==admin_code) {
+		printf("\e[1;31m%s est devenu admin\e[0m\n",id_send);
+		clients[uid]->Isadmin = 1;
+	}
+	else {
+		printf("\e[1;31m%s a échoué pour devenir admin\e[0m\n",id_send);
+		clients[uid]->Isadmin = 0;
+	}
+
+}
+
+
+
+
 void function_handler(char *s, int uid, client_t *cli)
 {
 	if (strcmp(s, "/man") == 0)
@@ -621,6 +666,10 @@ void function_handler(char *s, int uid, client_t *cli)
 	if (s[1] == 'm' && s[2] == 'p' && s[3] == ' ')
 	{
 		mp_handler(s, uid);
+	}
+	if (s[1] == 'a' && s[2] == 'd' && s[3] == ' ')
+	{
+		admin_handler(s, uid);
 	}
 	if (s[1] == 'm' && s[2] == 'u' && s[3] == ' ')
 	{
@@ -756,6 +805,7 @@ void *handle_client(void *arg)
 		{
 			// il est co au channel serveur au debut
 			cli->channel_co = 11;
+			cli->Isadmin = 0;
 			// Accueille le client
 			strcpy(cli->name, name);
 			sprintf(buff_out, "\e[32m%s\e[0m has joined\n", cli->name);
