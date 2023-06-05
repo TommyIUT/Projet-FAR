@@ -10,66 +10,92 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <dirent.h>
-#include <sys/stat.h>
 
 // nb d'user max et taille max des messages
 #define MAX_CLIENTS 4000
 #define BUFFER_SZ 3000
-#define SIZE 1024
+#define CHANNEL_SZ 11
+
+#define admin_code 454
+
+#define TAILLE_MAX_FICHIER 1024
+#define PORT_RECEIVE port + 1
 
 // Valeurs globales
-
-static _Atomic unsigned int cli_count = 0; // nb client connecté
+int dSF; // socket receive file
+static _Atomic unsigned int cli_count = 0;
+static _Atomic unsigned int channel_count = 0;		   // nb client connecté
 static _Atomic unsigned int cli_restant = MAX_CLIENTS; // nb client restant
-static int uid = 10; // client id
+static int uid = 10;								   // client id
 
 // type client
-typedef struct{
+typedef struct
+{
 	struct sockaddr_in address;
 	int sockfd;
 	int uid;
 	char name[32];
+	int channel_co;
+	int Isadmin;
 } client_t;
 
+typedef struct
+{
+	int uid_channel;
+	char name[32];
+	int cli_co; // combien de user co
+} channel;
+
 client_t *clients[MAX_CLIENTS];
+// ca marche pas
+channel *liste_channel[CHANNEL_SZ];
 
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t channels_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Affichage, met un >
-void str_overwrite_stdout() {
-    printf("\r%s", "> ");
+void str_overwrite_stdout()
+{
+	printf("\n%s", "> ");
 	// vide le tampon de sortie
-    fflush(stdout);
+	fflush(stdout);
 }
 
 // supprimer le charactère '\n'
-void str_trim_lf (char* arr, int length) {
-  int i;
-  for (i = 0; i < length; i++) { // dernier caractère
-    if (arr[i] == '\n') {
-      arr[i] = '\0';
-      break;
-    }
-  }
+void str_trim_lf(char *arr, int length)
+{
+	int i;
+	for (i = 0; i < length; i++)
+	{ // dernier caractère
+		if (arr[i] == '\n')
+		{
+			arr[i] = '\0';
+			break;
+		}
+	}
 }
 
 // Affichage de l'adresse ip
-void print_client_addr(struct sockaddr_in addr){
-    printf("%d.%d.%d.%d",
-        addr.sin_addr.s_addr & 0xff,
-        (addr.sin_addr.s_addr & 0xff00) >> 8,
-        (addr.sin_addr.s_addr & 0xff0000) >> 16,
-        (addr.sin_addr.s_addr & 0xff000000) >> 24);
+void print_client_addr(struct sockaddr_in addr)
+{
+	printf("%d.%d.%d.%d",
+		   addr.sin_addr.s_addr & 0xff,
+		   (addr.sin_addr.s_addr & 0xff00) >> 8,
+		   (addr.sin_addr.s_addr & 0xff0000) >> 16,
+		   (addr.sin_addr.s_addr & 0xff000000) >> 24);
 }
 
 // Ajout d'un client
-void queue_add(client_t *cl){
+void queue_add(client_t *cl)
+{
 	// verouille l'accès au tableau de client au cas ou plusieurs connections en meme temps
 	pthread_mutex_lock(&clients_mutex);
 
-	//parcours le tableau jusqu'a une case qui contient null et ajoute le client
-	for(int i=0; i < MAX_CLIENTS; ++i){
-		if(!clients[i]){
+	// parcours le tableau jusqu'a une case qui contient null et ajoute le client
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (!clients[i])
+		{
 			clients[i] = cl;
 			clients[i]->uid = i;
 			break;
@@ -81,12 +107,16 @@ void queue_add(client_t *cl){
 }
 
 // Retire le client du serveur avec son id
-void queue_remove(int uid){
+void queue_remove(int uid)
+{
 	pthread_mutex_lock(&clients_mutex);
 
-	for(int i=0; i < MAX_CLIENTS; ++i){
-		if(clients[i]){
-			if(clients[i]->uid == uid){
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (clients[i]->uid == uid)
+			{
 				clients[i] = NULL;
 				break;
 			}
@@ -97,13 +127,18 @@ void queue_remove(int uid){
 }
 
 // Envoie un message à tous les clients sauf à celui qui la envoyé
-void send_message(char *s, int uid){
+void send_message(char *s, client_t *cli)
+{
 	pthread_mutex_lock(&clients_mutex);
 
-	for(int i=0; i<MAX_CLIENTS; ++i){
-		if(clients[i]){
-			if(clients[i]->uid != uid){
-				if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (clients[i]->uid != cli->uid && clients[i]->channel_co == cli->channel_co)
+			{
+				if (write(clients[i]->sockfd, s, strlen(s)) < 0)
+				{
 					perror("ERROR: write to descriptor failed");
 					break;
 				}
@@ -115,227 +150,777 @@ void send_message(char *s, int uid){
 }
 
 // Envoie un message a tout les clients
-void send_message_all(char *s){
-    pthread_mutex_lock(&clients_mutex);
+void send_message_all(char *s)
+{
+	pthread_mutex_lock(&clients_mutex);
 
-    for(int i=0; i<MAX_CLIENTS; ++i){
-        if(clients[i]){
-			if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (write(clients[i]->sockfd, s, strlen(s)) < 0)
+			{
 				perror("ERROR: write to descriptor failed");
 				break;
 			}
-        }
-    }
+		}
+	}
 
-    pthread_mutex_unlock(&clients_mutex);
+	pthread_mutex_unlock(&clients_mutex);
 }
 
 // Envoie un message a un seul client
-void send_mp(char *s, int uid){
-    pthread_mutex_lock(&clients_mutex);
+void send_mp(char *s, int uid)
+{
+	pthread_mutex_lock(&clients_mutex);
 
-    for(int i=0; i<MAX_CLIENTS; ++i){
-        if(clients[i]){
-            if(clients[i]->uid == uid){
-                if(write(clients[i]->sockfd, s, strlen(s)) < 0){
-                    perror("ERROR: write to descriptor failed");
-                    break;
-                }
-            }
-        }
-    }
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (clients[i]->uid == uid)
+			{
+				if (write(clients[i]->sockfd, s, strlen(s)) < 0)
+				{
+					perror("ERROR: write to descriptor failed");
+					break;
+				}
+			}
+		}
+	}
 
-    pthread_mutex_unlock(&clients_mutex);
+	pthread_mutex_unlock(&clients_mutex);
 }
 
 // envoie le manuel à l'utilisateur
-void send_manuel(int uid){
-	char* s = "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo display files to send: /file \nTo send a file: /send\nTo download a file: /dl\n";
-	send_mp(s,uid);
+// mod
+void send_manuel(int uid)
+{
+	char *s = "\e[1;34m"
+			  "\nTo send a private message : /mp username message\nTo logout : /end\nTo request the manual : /man\nTo send a file : /send\nTo receive a file : /rf id_file\nTo request the list of the files on the server : /li\nTo create a channel(admin only) : /cc name_channel\nTo request the list of the channels : /lc\nTo join a channel : /jc id_channel\nTo leave a channel : /dc\nTo move a user in a channel(admin only) : /mu username id_channel\nTo disconnect a user from a channel(admin only) : /du username\nTo enter the admin code :/ad code\n"
+			  "\e[0m";
+	send_mp(s, uid);
 }
-
-
-
+// fin mod
 // gère les messages privés
-void mp_handler(char *s,int uid){
+void mp_handler(char *s, int uid)
+{
 	char buff_out[BUFFER_SZ]; // Message a envoyer
-	char* id_receive = malloc(sizeof(char) * (strlen(s)+1));
-    char* message = malloc(sizeof(char) * (strlen(s)+1));
+	char *id_receive = malloc(sizeof(char) * (strlen(s) + 1));
+	char *message = malloc(sizeof(char) * (strlen(s) + 1));
 
-    // Récupère l'utilisateur destinataire
-    int i = 4; // commencer après "/mp "
-    int j = 0;
-    while (s[i] != ' ' && s[i] != '\0') {
-        id_receive[j] = s[i];
-        i++;
-        j++;
-    }
-    id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
+	// Récupère l'utilisateur destinataire
+	int i = 4; // commencer après "/mp "
+	int j = 0;
+	while (s[i] != ' ' && s[i] != '\0')
+	{
+		id_receive[j] = s[i];
+		i++;
+		j++;
+	}
+	id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
 
-    // Récupère le message
-    i++; // sauter l'espace
-    j = 0;
-    while (s[i] != '\0') {
-        message[j] = s[i];
-        i++;
-        j++;
-    }
-    message[j] = '\0'; // ajouter le caractère de fin de chaîne
+	// Récupère le message
+	i++; // sauter l'espace
+	j = 0;
+	while (s[i] != '\0')
+	{
+		message[j] = s[i];
+		i++;
+		j++;
+	}
+	message[j] = '\0'; // ajouter le caractère de fin de chaîne
 
-    // recupere le pseudo de celui qui envoit
-	char* id_send = malloc(sizeof(char) * (strlen(s)+1));
-	for(int i=0; i<MAX_CLIENTS; ++i){
-			if(clients[i]){
-				if(clients[i]->uid == uid){
-					strcpy(id_send,clients[i]->name);
-				}	
-   			}
+	// recupere le pseudo de celui qui envoit
+	char *id_send = malloc(sizeof(char) * (strlen(s) + 1));
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (clients[i]->uid == uid)
+			{
+				strcpy(id_send, clients[i]->name);
+			}
 		}
+	}
 
 	// recupere l'uid du receveur'
 	int uid_receive = -1;
-	for(int i=0; i<MAX_CLIENTS; ++i){
-			if(clients[i]){
-				if(strcmp(clients[i]->name, id_receive)==0){
-					uid_receive = i;
-				}
-   			}
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (strcmp(clients[i]->name, id_receive) == 0)
+			{
+				uid_receive = i;
+			}
 		}
-	
+	}
 
-	if(uid_receive == -1){
+	if (uid_receive == -1)
+	{
 		printf("Le pseudo du destinataire n'existe pas.\n");
 		sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
-		send_mp(buff_out,uid);
-	}else{
-		printf("%s -> %s : %s\n",id_send, id_receive, message);
-		//envoie le mp
-		sprintf(buff_out, "%s vous chuchote : %s\n",id_send,message);
-		send_mp(buff_out,uid_receive);
+		send_mp(buff_out, uid);
 	}
-    free(id_receive);
-    free(message);
+	else
+	{
+		printf("%s -> %s : %s\n", id_send, id_receive, message);
+		// envoie le mp mod
+		sprintf(buff_out, "\e[1;33m %s vous chuchote : %s\e[0m \n", id_send, message);
+		send_mp(buff_out, uid_receive);
+	}
+	free(id_receive);
+	free(message);
 }
 
-void catch_ctrl_c_and_exit(int sig) {
-	send_message_all("\nThe chat ended.\n");
-	printf("\nThe chat ended.\n");
+void leave_channel(client_t *cli, channel *Channel)
+{
+	char msg[100];
+	sprintf(msg, "\e[1;30myou are leaving channel %s..\n \e[0m", Channel->name);
+	printf("\e[1;30m%s a quitté le channel : %s\e[0m\n", cli->name, Channel->name);
+	cli->channel_co = 11;
+	send_mp(msg, cli->uid);
+	send_mp("\n", cli->uid);
+	send_mp("\e[1;31m"
+			"=== WELCOME TO THE CHATROOM ===\n"
+			"\e[0m",
+			cli->uid);
+}
+
+void move_user(char *s, int uid)
+{
+	char buff_out[BUFFER_SZ]; // Message a envoyer
+	char *id_receive = malloc(sizeof(char) * (strlen(s) + 1));
+	char *id_channel_en_char = malloc(sizeof(char) * (strlen(s) + 1));
+
+	if(clients[uid]->Isadmin==1){
+		// Récupère l'utilisateur destinataire
+	int i = 4; // commencer après "/mu "
+	int j = 0;
+	while (s[i] != ' ' && s[i] != '\0')
+	{
+		id_receive[j] = s[i];
+		i++;
+		j++;
+	}
+	id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+	// Récupère l'id du channel en char
+	i++; // sauter l'espace
+	j = 0;
+	while (s[i] != '\0')
+	{
+		id_channel_en_char[j] = s[i];
+		i++;
+		j++;
+	}
+	id_channel_en_char[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+	// recupere le pseudo de celui qui envoit
+	char *id_send = malloc(sizeof(char) * (strlen(s) + 1));
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (clients[i]->uid == uid)
+			{
+				strcpy(id_send, clients[i]->name);
+			}
+		}
+	}
+
+	// recupere l'uid du receveur'
+	int uid_receive = -1;
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (strcmp(clients[i]->name, id_receive) == 0)
+			{
+				uid_receive = i;
+			}
+		}
+	}
+
+	if (uid_receive == -1)
+	{
+		printf("Le pseudo du destinataire n'existe pas.\n");
+		sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
+		send_mp(buff_out, uid);
+	}
+	else
+	{
+		if (11 == atoi(id_channel_en_char))
+		{
+			sprintf(buff_out, "\e[1;32m%s disconnected you\e[0m \n", clients[uid]->name);
+			send_mp(buff_out, uid_receive);
+			send_mp("\n", uid_receive);
+			leave_channel(clients[uid_receive], liste_channel[clients[uid_receive]->channel_co]);
+		}
+		for (int i = 0; i < CHANNEL_SZ; i++)
+		{
+			if (i == atoi(id_channel_en_char))
+			{
+				clients[uid_receive]->channel_co = atoi(id_channel_en_char);
+				printf("\e[1;33m%s a move %s dans le channel : %s\e[0m \n", id_send, id_receive, liste_channel[atoi(id_channel_en_char)]->name);
+				// envoie le mp mod
+				sprintf(buff_out, "\e[1;33m%s vous a move dans le channel : %s\e[0m\n", id_send, liste_channel[atoi(id_channel_en_char)]->name);
+				send_mp(buff_out, uid_receive);
+
+				join_channel(uid_receive, liste_channel[atoi(id_channel_en_char)], clients[uid_receive]);
+
+				sprintf(buff_out, "\e[1;33mVous avez move %s dans le channel  : %s\e[0m \n", id_receive, liste_channel[atoi(id_channel_en_char)]->name);
+				send_mp(buff_out, uid);
+			}
+		}
+	}
+	} else{
+		sprintf(buff_out, "\e[1;31m Vous n'êtes pas admin.\e[0m \n");
+		send_mp(buff_out, uid);
+	}
+
+	free(id_receive);
+	free(id_channel_en_char);
+}
+
+void ds_user(char *s, int uid)
+{
+	char buff_out[BUFFER_SZ]; // Message a envoyer
+	if (clients[uid]->Isadmin == 1)
+	{
+		char *id_receive = malloc(sizeof(char) * (strlen(s) + 1));
+
+		// Récupère l'utilisateur destinataire
+		int i = 4; // commencer après "/mu "
+		int j = 0;
+		while (s[i] != ' ' && s[i] != '\0')
+		{
+			id_receive[j] = s[i];
+			i++;
+			j++;
+		}
+		id_receive[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+		// Récupère l'id du channel en char
+		i++; // sauter l'espace
+		j = 0;
+
+		// recupere le pseudo de celui qui envoit
+		char *id_send = malloc(sizeof(char) * (strlen(s) + 1));
+		for (int i = 0; i < MAX_CLIENTS; ++i)
+		{
+			if (clients[i])
+			{
+				if (clients[i]->uid == uid)
+				{
+					strcpy(id_send, clients[i]->name);
+				}
+			}
+		}
+
+		// recupere l'uid du receveur'
+		int uid_receive = -1;
+		for (int i = 0; i < MAX_CLIENTS; ++i)
+		{
+			if (clients[i])
+			{
+				if (strcmp(clients[i]->name, id_receive) == 0)
+				{
+					uid_receive = i;
+				}
+			}
+		}
+
+		if (uid_receive == -1)
+		{
+			printf("Le pseudo du destinataire n'existe pas.\n");
+			sprintf(buff_out, "Le pseudo du destinataire n'existe pas.\n");
+			send_mp(buff_out, uid);
+		}
+		else
+		{
+
+			sprintf(buff_out, "%s disconnected you", id_send);
+			send_mp(buff_out, uid_receive);
+			leave_channel(clients[uid_receive], liste_channel[clients[uid_receive]->channel_co]);
+		}
+		free(id_receive);
+	}
+	else if (clients[uid]->Isadmin == 0)
+	{
+		sprintf(buff_out, "\e[1;31m Vous n'êtes pas admin.\e[0m \n");
+		send_mp(buff_out, uid);
+	}
+}
+
+void catch_ctrl_c_and_exit(int sig)
+{
+	send_message_all("\n\e[1;31mThe chat ended.\e[0m\n");
+	printf("\e[1;31mThe chat ended.\e[0m\n");
 	exit(0);
 }
 
-void receive_file(int sockfd, const char* filename) {
-    FILE* fp = fopen(filename, "w");
-    if (fp == NULL) {
-        perror("[-]Error in creating file");
-        return;
-    }
- 
-    char buffer[SIZE];
-    int bytes_received;
-    while ((bytes_received = recv(sockfd, buffer, SIZE, 0)) > 0) {
-        fwrite(buffer, sizeof(char), bytes_received, fp);
-        bzero(buffer, SIZE);
-    }
- 
-    fclose(fp);
+/* Renvois la liste des fichiers dans /clientfiles  */
+char **listFile(int *tailleListe)
+{
+	DIR *d;
+	struct dirent *dir;
+	d = opendir("./serverfiles");
+	if (d)
+	{
+		int i = 0;
+		char **fileList = NULL;
+		while ((dir = readdir(d)) != NULL)
+		{
+			if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0)
+			{
+				fileList = realloc(fileList, (i + 1) * sizeof(char *));
+				fileList[i] = malloc(strlen(dir->d_name) + 1);
+				strcpy(fileList[i], dir->d_name);
+				// pos mais marche pas
+				i++;
+			}
+		}
+		closedir(d);
+		fileList = realloc(fileList, (i + 1) * sizeof(char *)); // ajouter un pointeur NULL à la fin du tableau
+		fileList[i] = NULL;
+		*tailleListe = i;
+		return fileList;
+	}
+	return NULL;
+}
+
+void afficher_channel_handler(int uid)
+{
+	char msg[100];
+	send_mp("Voici la liste des channels:\n", uid);
+	if (liste_channel[0] == NULL)
+	{
+		send_mp("\e[1;31m Il n'y a pas de channel pour l'instant\e[0m\n", uid);
+	}
+	else
+	{
+		for (int i = 0; i < CHANNEL_SZ; i++)
+		{
+
+			if (liste_channel[i] != NULL)
+			{
+				sprintf(msg, "%s , id : %d\n", liste_channel[i]->name, i);
+				send_mp(msg, uid);
+			}
+		}
+	}
+}
+
+void create_channel_handler(char *s, int uid)
+{
+	char buff_out[BUFFER_SZ]; // Message à envoyer
+	if (clients[uid]->Isadmin == 1)
+	{
+		char channel_name[32]; // Nom du canal extrait de la commande
+		int leave_flag = 0;
+
+		strcpy(channel_name, s + 4); // Extrait le nom du canal à partir de la position 4
+
+		// Vérifie si le nom du canal est vide ou invalide
+		if (strlen(channel_name) < 2 || strlen(channel_name) >= 32 - 1)
+		{
+			printf("Invalid channel name.\n");
+			sprintf(buff_out, "\e[32mInvalid channel name\e[0m\n");
+			send_mp(buff_out, uid);
+			leave_flag = 1;
+		}
+
+		if (!leave_flag)
+		{
+			// Vérifie si le nom du canal est déjà utilisé
+			int duplicate = 0;
+			for (int i = 0; i < CHANNEL_SZ; ++i)
+			{
+				if (liste_channel[i])
+				{
+					if (strcmp(liste_channel[i]->name, channel_name) == 0)
+					{
+						duplicate = 1;
+						break;
+					}
+				}
+			}
+
+			// Si duplicate est vrai, le nom du canal est déjà utilisé
+			if (duplicate)
+			{
+				printf("Channel name %s is already used.\n", channel_name);
+				sprintf(buff_out, "\e[32mChannel name %s is already used\e[0m\n", channel_name);
+				send_mp(buff_out, uid);
+				leave_flag = 1;
+			}
+			else
+			{
+				// Crée le nouveau canal
+				channel *new_channel = (channel *)malloc(sizeof(channel));
+
+				strcpy(new_channel->name, channel_name);
+
+				pthread_mutex_lock(&channels_mutex);
+				// Ajoute le canal à la liste des canaux
+				int index = -1;
+				for (int i = 0; i < CHANNEL_SZ; ++i)
+				{
+					if (!liste_channel[i])
+					{
+						index = i;
+						break;
+					}
+				}
+
+				if (index != -1)
+				{
+					// Utilise l'index comme ID du canal
+					new_channel->uid_channel = index;
+					new_channel->cli_co = 0;
+					liste_channel[index] = new_channel;
+					printf("\e[1;30m%s a crée le channel : %s\e[0m\n", clients[uid]->name, new_channel->name);
+				}
+				else
+				{
+					printf("No available slots for new channels.\n");
+					sprintf(buff_out, "\e[32mNo available slots for new channels\e[0m\n");
+					send_mp(buff_out, uid);
+					leave_flag = 1;
+				}
+				pthread_mutex_unlock(&channels_mutex);
+				if (!leave_flag)
+				{
+					// Envoie un message de confirmation au client
+					sprintf(buff_out, "\e[32mChannel %s has been created.\e[0m\n", channel_name);
+					send_mp(buff_out, uid);
+				}
+			}
+		}
+	}
+	else
+	{
+		sprintf(buff_out, "\e[31mVous n'êtes pas admin.\e[0m\n");
+		send_mp(buff_out, uid);
+	}
+	bzero(buff_out, BUFFER_SZ);
+}
+
+channel *find_the_channel(int id_channel, int uid)
+{
+	for (int i = 0; i < CHANNEL_SZ; i++)
+	{
+		if (i == id_channel)
+		{
+			return liste_channel[i];
+		}
+	}
+
+	send_mp("Nous ne trouvons pas votre channel", uid);
+	return NULL;
+}
+
+void join_channel(int uid, channel *Channel, client_t *cli)
+{
+	char msg[100];
+	char buff_out[BUFFER_SZ]; // Message a envoyer
+	cli->channel_co = Channel->uid_channel;
+	Channel->cli_co++;
+	sprintf(msg, "   \e[1;31m=== WELCOME TO %s ===\e[0m\n", Channel->name);
+	send_mp(msg, uid);
+	sprintf(buff_out, "\e[1;35m Utilisateurs connectés : %d/%d \e[0m\n", Channel->cli_co, MAX_CLIENTS);
+	send_mp(buff_out, cli->uid);
+}
+
+void admin_handler(char *s, int uid)
+{
+	char buff_out[BUFFER_SZ]; // Message a envoyer
+	char *test_code_admin = malloc(sizeof(char) * (strlen(s) + 1));
+
+	// Récupère le code
+	int i = 4; // commencer après "/ad "
+	int j = 0;
+	while (s[i] != ' ' && s[i] != '\0')
+	{
+		test_code_admin[j] = s[i];
+		i++;
+		j++;
+	}
+	test_code_admin[j] = '\0'; // ajouter le caractère de fin de chaîne
+
+	// recupere le pseudo de celui qui envoit
+	char *id_send = malloc(sizeof(char) * (strlen(s) + 1));
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if (clients[i])
+		{
+			if (clients[i]->uid == uid)
+			{
+				strcpy(id_send, clients[i]->name);
+			}
+		}
+	}
+
+	if (atoi(test_code_admin) == admin_code)
+	{
+		printf("\e[1;31m%s est devenu admin\e[0m\n", id_send);
+		clients[uid]->Isadmin = 1;
+		sprintf(buff_out, "\e[1;31m Vous êtes maintenant admin\e[0m\n");
+		send_mp(buff_out, uid);
+	}
+	else
+	{
+		printf("\e[1;31m%s a échoué pour devenir admin\e[0m\n", id_send);
+		clients[uid]->Isadmin = 0;
+		sprintf(buff_out, "\e[1;31m Vous avez échoué pour devenir admin\e[0m\n");
+		send_mp(buff_out, uid);
+	}
+}
+
+void function_handler(char *s, int uid, client_t *cli)
+{
+	if (strcmp(s, "/man") == 0)
+	{
+		send_manuel(uid);
+	}
+	if (s[1] == 'm' && s[2] == 'p' && s[3] == ' ')
+	{
+		mp_handler(s, uid);
+	}
+	if (s[1] == 'a' && s[2] == 'd' && s[3] == ' ')
+	{
+		admin_handler(s, uid);
+	}
+	if (s[1] == 'm' && s[2] == 'u' && s[3] == ' ')
+	{
+		move_user(s, uid);
+	}
+	if (s[1] == 'd' && s[2] == 'u' && s[3] == ' ')
+	{
+		ds_user(s, uid);
+	}
+	if (s[1] == 'c' && s[2] == 'c' && s[3] == ' ')
+	{
+		create_channel_handler(s, uid);
+	}
+	if (s[1] == 'l' && s[2] == 'c')
+	{
+		afficher_channel_handler(uid);
+	}
+	if (s[1] == 'd' && s[2] == 'c')
+	{
+		for (int i = 0; i < CHANNEL_SZ; i++)
+		{
+			if (i == cli->channel_co)
+			{
+				leave_channel(cli, liste_channel[i]);
+			}
+		}
+	}
+	if (s[1] == 'j' && s[2] == 'c' && s[3] == ' ')
+	{
+		int channel_id = atoi(&s[4]);
+		// // 	// Effectuez les actions requises avec l'identifiant du fichier
+
+		channel *channel_voulu = find_the_channel(channel_id, uid);
+		printf("\e[1;30m%s a join le channel : %s\e[0m\n", clients[uid]->name, channel_voulu->name);
+		join_channel(uid, channel_voulu, cli);
+	}
+
+	// POUR LES FICHIERS --------------------------------------------------
+
+	if ((s[1] == 'r' && s[2] == 'f' && s[3] == ' ') || (s[1] == 'l' && s[2] == 'i'))
+	{
+		int nbFichier = 0;
+		char id_fichier[32];
+		char chaine[100];
+		char nom_fichier[200];
+		char **fileList = listFile(&nbFichier);
+		int index;
+		// POUR LES RECEVOIR  --------------------------------------------------
+		if (s[1] == 'r' && s[2] == 'f')
+		{
+			int file_id = atoi(&s[4]);
+			// // 	// Effectuez les actions requises avec l'identifiant du fichier
+			printf("Client selected file ID: %d\n", file_id);
+		}
+		// POUR LES LISTER --------------------------------------------------
+		if (s[1] == 'l' && s[2] == 'i')
+		{
+
+			send(uid, &nbFichier, sizeof(nbFichier), 0);
+			sprintf(chaine, "Nombre de fichier : %d\n", nbFichier);
+			printf("%s\n", chaine);
+			send_mp(chaine, uid);
+			send_mp("liste des fichiers :\n", uid);
+			for (int i = 0; i < nbFichier; i++)
+			{
+				sprintf(nom_fichier, "%s id: %d\n", fileList[i], i);
+				send_mp(nom_fichier, uid);
+			}
+		}
+	}
 }
 
 // Gère le client connecté
-void *handle_client(void *arg){
+void *handle_client(void *arg)
+{
 	char buff_out[BUFFER_SZ]; // Message a envoyer
 	char name[32];
 	int leave_flag = 0;
-	char filename[50];
 
 	cli_count++;
 	cli_restant--;
 	client_t *cli = (client_t *)arg;
 
 	// Reçoit le nom du client connecté
-	if(recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) <  2 || strlen(name) >= 32-1){
+	if (recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) < 2 || strlen(name) >= 32 - 1)
+	{
 		printf("Didn't enter the name.\n");
 		leave_flag = 1;
-	} else{
-		//vérifie si le pseudo a un espace 
+	}
+	else
+	{
+		// vérifie si le pseudo a un espace
 		int ouiespace = 0;
-		for (int i = 0; name[i] != '\0'; i++) {
-			if (name[i]==' ') {
+		for (int i = 0; name[i] != '\0'; i++)
+		{
+			if (name[i] == ' ')
+			{
 				ouiespace = 1;
 			}
-   		}
+		}
 
 		// vérifie si le pseudo est unique
 		int doublon = 1;
-		for(int i=0; i<MAX_CLIENTS; ++i){
-			if(clients[i]){
-				if(strcmp(clients[i]->name, name)==0){
+		for (int i = 0; i < MAX_CLIENTS; ++i)
+		{
+			if (clients[i])
+			{
+				if (strcmp(clients[i]->name, name) == 0)
+				{
 					doublon = 0;
-				}	
-   			}
+				}
+			}
 		}
 
 		// si doublon == 0 le client a un nom pas unique => ca dégage
-		if (doublon == 0){
-			printf("Name %s is already used\n", name);
-			sprintf(buff_out, "Name %s is already used\n", name);
-			send_mp(buff_out,cli->uid);
+		if (doublon == 0)
+		{
+
+			printf(" Name %s is already used\n", name);
+			sprintf(buff_out, "\e[32m Name %s is already used\e[0m\n", name);
+			send_mp(buff_out, cli->uid);
 			leave_flag = 1;
-		// si ouiespace == 1 le client a un espace dans son nom on accepte pas
-		} else if(ouiespace == 1){
+			// si ouiespace == 1 le client a un espace dans son nom on accepte pas
+		}
+		else if (ouiespace == 1)
+		{
 			printf("Le pseudo contient des espaces\n");
 			sprintf(buff_out, "Pas d'espace dans le pseudo svp\n");
-			send_mp(buff_out,cli->uid);
+			send_mp(buff_out, cli->uid);
 			leave_flag = 1;
-		}else{
+		}
+		else
+		{
+			// il est co au channel serveur au debut
+			cli->channel_co = 11;
+			cli->Isadmin = 0;
 			// Accueille le client
 			strcpy(cli->name, name);
-			sprintf(buff_out, "%s has joined\n", cli->name);
+			sprintf(buff_out, "\e[32m%s\e[0m has joined\n", cli->name);
 			printf("%s\n", buff_out);
-			printf("%d places restantes.\n", cli_restant);
-			send_message(buff_out, cli->uid);
-			//envoyer au client qui vient de se connecter 5/10 par ex, le nb de gens connectés
-			sprintf(buff_out,"Utilisateurs connectés : %d/%d\n", cli_count, MAX_CLIENTS);
-			send_mp(buff_out,cli->uid);
+			printf("\e[1;35m%d places restantes.\e[0m\n", cli_restant);
+			send_message(buff_out, cli);
+			// envoyer au client qui vient de se connecter 5/10 par ex, le nb de gens connectés
+			sprintf(buff_out, "\e[1;35m Utilisateurs connectés : %d/%d \e[0m\n", cli_count, MAX_CLIENTS);
+			send_mp(buff_out, cli->uid);
+			send_manuel(cli->uid);
 		}
 	}
 
 	bzero(buff_out, BUFFER_SZ);
 
-	while(1){
-		// sort de la boucle 
-		if (leave_flag) {
+	while (1)
+	{
+		// sort de la boucle
+		if (leave_flag)
+		{
 			break;
 		}
 
 		// reçoit les messages du client
+
 		int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
-		if (receive > 0){
-			if(strlen(buff_out) > 0){
-				// la où commence réelement le msg (+2 pour : et l'espace qui suivent le nom)
-				int index = strlen(cli->name)+2;
+		if (receive > 0)
+		{
+			if (strlen(buff_out) > 0)
+			{
+				int index = strlen(cli->name) + 2;
+				char *name = malloc(index + 1); // Alloue de la mémoire pour le tableau name
+				memcpy(name, buff_out, index);
+				name[index] = '\0';
+
+				char name_colored[index + 15]; // +15 pour la taille de la séquence ANSI de couleur
+				strcpy(name_colored, "\033[1;32m");
+				strcat(name_colored, name);
+
 				int len = strlen(buff_out);
-				char msg[len-index+1];
+				char msg[len - index + 1];
 				memcpy(msg, &buff_out[index], len - index);
-   				msg[len - index] = '\0';
-				if(msg[0] == '/') {
-					str_trim_lf(msg, strlen(msg));
-					function_handler(msg,cli->uid);
-				}else{
-					// envoie le message aux autres clients
-					send_message(buff_out, cli->uid);
-					str_trim_lf(buff_out, strlen(buff_out));
-					printf("%s\n", buff_out);
+				msg[len - index + 1] = '\0';
+
+				char buff_out_modified[len + index + 30]; // + index + 15 pour la taille du nom en rouge
+				strcpy(buff_out_modified, name_colored);
+				strcat(buff_out_modified, "in ");
+				if (cli->channel_co == 11)
+				{
+					strcat(buff_out_modified, "serveur : \033[0m");
 				}
-				
+				else
+				{
+					for (int i = 0; i < CHANNEL_SZ - 1; i++)
+					{
+						if (i == cli->channel_co)
+						{
+							strcat(buff_out_modified, liste_channel[i]->name);
+							strcat(buff_out_modified, ": \033[0m");
+						}
+					}
+				}
+				strcat(buff_out_modified, "\033[0m");
+				strcat(buff_out_modified, msg);
+
+				if (msg[0] == '/')
+				{
+					str_trim_lf(msg, strlen(msg));
+					function_handler(msg, cli->uid, cli);
+				}
+				else
+				{
+					// envoie le message aux autres clients
+					send_message(buff_out_modified, cli);
+					str_trim_lf(buff_out_modified, strlen(buff_out_modified));
+					printf("%s\n", buff_out_modified);
+				}
+
+				// Libère la mémoire allouée pour name
+				free(name);
 			}
-		// si le client se déconnecte
-		} else if (receive == 0 || strcmp(buff_out, "exit") == 0){
+			// si le client se déconnecte
+		}
+		else if (receive == 0 || strcmp(buff_out, "exit") == 0)
+		{
 			// informe les autres clients
 			sprintf(buff_out, "%s has left\n", cli->name);
 			printf("%s", buff_out);
-			send_message(buff_out, cli->uid);
+			send_message(buff_out, cli);
 			leave_flag = 1;
-		} else {
+		}
+		else
+		{
 			printf("ERROR: -1\n");
 			leave_flag = 1;
 		}
@@ -343,7 +928,7 @@ void *handle_client(void *arg){
 		bzero(buff_out, BUFFER_SZ);
 	}
 
- 	// Enleve le client du serveur
+	// Enleve le client du serveur
 	close(cli->sockfd);
 	queue_remove(cli->uid);
 	free(cli);
@@ -354,17 +939,12 @@ void *handle_client(void *arg){
 	return NULL;
 }
 
-void function_handler(char *s, int uid) {
-	if(strcmp(s, "/man") == 0){
-		send_manuel(uid);
-	}
-	if(s[1] == 'm' && s[2]=='p' && s[3]==' ') {
-		mp_handler(s, uid);
-	}
-}
+// ---------------------------------------------------------------
 
-int main(int argc, char **argv){
-	if(argc != 2){
+int main(int argc, char **argv)
+{
+	if (argc != 2)
+	{
 		printf("Usage: %s <port>\n", argv[0]);
 		return EXIT_FAILURE;
 	}
@@ -376,7 +956,21 @@ int main(int argc, char **argv){
 	struct sockaddr_in serv_addr;
 	struct sockaddr_in cli_addr;
 	pthread_t tid;
-	
+
+	dSF = socket(PF_INET, SOCK_STREAM, 0);
+
+	struct sockaddr_in adF;
+	adF.sin_family = AF_INET;
+	adF.sin_addr.s_addr = INADDR_ANY;
+	adF.sin_port = htons(PORT_RECEIVE);
+
+	/* Nommage de la socket reception fichier du serveur */
+	if (bind(dSF, (struct sockaddr *)&adF, sizeof(adF)) == -1)
+	{
+		perror("Erreur dans le bind serveur de la socket reception file");
+		exit(1);
+	}
+	listen(dSF, MAX_CLIENTS);
 
 	// reglages de la socket
 	listenfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -384,39 +978,49 @@ int main(int argc, char **argv){
 	serv_addr.sin_addr.s_addr = inet_addr(ip);
 	serv_addr.sin_port = htons(port);
 
- 	// ignore le signal pipe
+	// ignore le signal pipe
 	signal(SIGPIPE, SIG_IGN);
 	// pour gerer le ctrl+c
 	signal(SIGINT, catch_ctrl_c_and_exit);
 
 	// ajoute SO_REUSEADDR a la socket : reutilise le meme port et la meme adresse ip pour plusieurs socket
-	if(setsockopt(listenfd, SOL_SOCKET,SO_REUSEADDR,(char*)&option,sizeof(option)) < 0){
+	if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (char *)&option, sizeof(option)) < 0)
+	{
 		perror("ERROR: setsockopt failed");
-   		return EXIT_FAILURE;
+		return EXIT_FAILURE;
 	}
 
 	// associe la socket a l'adresse et port du serveur
-	if(bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+	if (bind(listenfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+	{
 		perror("ERROR: Socket binding failed");
 		return EXIT_FAILURE;
 	}
 
- 	// met le socket en mode ecoute
-	if (listen(listenfd, 10) < 0) {
+	// met le socket en mode ecoute
+	if (listen(listenfd, 10) < 0)
+	{
 		perror("ERROR: Socket listening failed");
 		return EXIT_FAILURE;
 	}
+	channel *new_channel = (channel *)malloc(sizeof(channel));
+	strcpy(new_channel->name, "serveur");
+	liste_channel[CHANNEL_SZ] = new_channel;
 
-	printf("=== WELCOME TO THE CHATROOM ===\n");
+	printf("\e[1;31m=== WELCOME TO THE CHATROOM ===\e[0m\n");
 
-	while(1){
+	while (1)
+	{
 		// Accetpe les demande de connexion des clients
 		socklen_t clilen = sizeof(cli_addr);
-		connfd = accept(listenfd, (struct sockaddr*)&cli_addr, &clilen);
+		connfd = accept(listenfd, (struct sockaddr *)&cli_addr, &clilen);
 
 		// vérifie si le nombre de clients max est atteint
-		if((cli_count + 1) == MAX_CLIENTS){
-			printf("Max clients reached. Rejected: ");
+		if ((cli_count + 1) == MAX_CLIENTS)
+		{
+			printf("\e[1;31m"
+				   "Max clients reached. Rejected: "
+				   "\e[0m");
 			print_client_addr(cli_addr);
 			printf(":%d\n", cli_addr.sin_port);
 			close(connfd);
@@ -430,7 +1034,7 @@ int main(int argc, char **argv){
 
 		// ajoute le client
 		queue_add(cli);
-		pthread_create(&tid, NULL, &handle_client, (void*)cli);
+		pthread_create(&tid, NULL, &handle_client, (void *)cli);
 
 		sleep(1);
 	}
